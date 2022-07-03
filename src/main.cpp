@@ -170,7 +170,9 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-
+  // Idea: Transmit every 5 Minutes. Transmit an array: 1. Pos = Value of Min 1, 2. Pos = Value of Min 2, 3. Pos = Value of Min 3.... last Pos = current Value
+  // This leaves room for an earlier transmit if a measurement value is out of range (e.g. too high)
+  //lpp.addAnalogInput(1,)
 
   while(!flag_TXCOMPLETE) { //this flag is set to false each time before a sendjob is scheduled. it is set back to true after a successful txcomplete.
     os_runloop_once();
