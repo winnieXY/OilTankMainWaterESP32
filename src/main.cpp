@@ -20,7 +20,6 @@
 /*****************************************************************************
  * LoRaWAN Settings
  ****************************************************************************/
-//TODO: Pin mapping
 const lmic_pinmap lmic_pins = {
     .nss =  15,
     .rxtx = LMIC_UNUSED_PIN,
@@ -184,6 +183,7 @@ void setup() {
 
 void loop() {
     if (data_fetch_time == 0 || data_fetch_time <= millis() || data_fetch_time + DATA_FETCH_DELAY > millis()) {
+        dprintln("Get Data and transport it!");
         //Get data
         lpp.addAnalogOutput(0, DATA_FETCH_DELAY); //0 is the delay between every measurement
         lpp.addGenericSensor(array_counter, 1);
@@ -193,6 +193,7 @@ void loop() {
 
         //If value exceeds fixed limit transfer directly and do not wait till the array is full
         if (array_counter >= DATA_ARRAY_SIZE || false )  {
+            dprintln("Send data to gateway");
             do_send(&sendjob);
         }
    
