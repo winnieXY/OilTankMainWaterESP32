@@ -20,6 +20,14 @@
 /*****************************************************************************
  * LoRaWAN Settings
  ****************************************************************************/
+//TODO: Pin mapping
+const lmic_pinmap lmic_pins = {
+    .nss =  15,
+    .rxtx = LMIC_UNUSED_PIN,
+    .rst = 33,
+    .dio = {32, 27, LMIC_UNUSED_PIN},
+};
+
 //Cayene LPP Variable
 CayenneLPP lpp(51); //51 would be save, 71 is okay as we send only every 5 minutes. 
 
@@ -32,7 +40,7 @@ static const u1_t PROGMEM APPEUI[8]={ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8);}
 
 // This should also be in little endian format, see above. //New:
-static const u1_t PROGMEM DEVEUI[8]={ 0x85, 0xa0, 0x6d, 0x84, 0xd4, 0x04, 0x51, 0xc17 };
+static const u1_t PROGMEM DEVEUI[8]={ 0x85, 0xa0, 0x6d, 0x84, 0xd4, 0x04, 0x51, 0xc1 };
 void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
 
 // This key should be in big endian format (or, since it is not really a
@@ -47,13 +55,6 @@ static osjob_t sendjob;
 // cycle limitations).
 const unsigned TX_INTERVAL = 60;
 
-//TODO: Pin mapping
-const lmic_pinmap lmic_pins = {
-    .nss = 38,
-    .rxtx = LMIC_UNUSED_PIN,
-    .rst = 32,
-    .dio = {34, 36, 37},
-};
 
 
 void do_send(osjob_t* j){
