@@ -55,8 +55,21 @@ static osjob_t sendjob;
 // cycle limitations).
 const unsigned TX_INTERVAL = 60;
 
+/******************************************************************************
+ * Timing & Array Declarations
+ *****************************************************************************/
+unsigned long int data_fetch_time = 0;
+unsigned long int data_transmit_time = 0;
+unsigned int counter = 1;
+
+#define DATA_FETCH_DELAY 60000 //Fetch data Every minute
+#define DATA_TRANSMIT_WINDOW 300000 //Transmit every five minutes
 
 
+
+/******************************************************************************
+ * Lorawan Functions
+ *****************************************************************************/
 void do_send(osjob_t* j){
     // Check if there is not a current TX/RX job running
     if (LMIC.opmode & OP_TXRXPEND) {
@@ -64,6 +77,9 @@ void do_send(osjob_t* j){
     } else {
         // Prepare upstream data transmission at the next possible time.
         LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
+        //Reset Counter
+        counter = 1;
+        lpp.reset();
     }
     dprintln(F("Packet queued"));
     // Next TX is scheduled after TX_COMPLETE event.
@@ -147,35 +163,61 @@ void onEvent (ev_t ev) {
 
 
 void setup() {
-  // put your setup code here, to run once:
-  #ifdef DEBUG
-    Serial.begin(9600);
-  #endif
-  dprintln("Starting communication");
+    // put your setup code here, to run once:
+    #ifdef DEBUG
+        Serial.begin(9600);
+    #endif
+    dprintln("Starting communication");
 
-  /****************************************************************************
-   * Initialize RFM95 LoRa Chip
-   ****************************************************************************/
-  // LMIC init
-  os_init();
-  // Reset the MAC state. Session and pending data transfers will be discarded.
-  LMIC_reset();
-  lpp.reset();
+    /****************************************************************************
+     * Initialize RFM95 LoRa Chip
+     ****************************************************************************/
+    // LMIC init
+    os_init();
+    // Reset the MAC state. Session and pending data transfers will be discarded.
+    LMIC_reset();
+    lpp.reset();
 
-  // Start LoRa job (sending automatically starts OTAA too)
-  flag_TXCOMPLETE = false;
-  do_send(&sendjob);
+    // Start LoRa job (sending automatically starts OTAA too)
+    flag_TXCOMPLETE = false;
+    do_send(&sendjob);
 
+    data_transmit_time = millis() + DATA_TRANSMIT_WINDOW;
 
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  // Idea: Transmit every 5 Minutes. Transmit an array: 1. Pos = Value of Min 1, 2. Pos = Value of Min 2, 3. Pos = Value of Min 3.... last Pos = current Value
-  // This leaves room for an earlier transmit if a measurement value is out of range (e.g. too high)
-  //lpp.addAnalogInput(1,)
+    if (data_fetch_time == 0 || data_fetch_time <= millis() || data_fetch_time + DATA_FETCH_DELAY > millis()) {
+        //Get data
+        lpp.addAnalogOutput(0, DATA_FETCH_DELAY); //0 is the delay between every measurement
+        lpp.addGenericSensor(counter, 1);
 
-  while(!flag_TXCOMPLETE) { //this flag is set to false each time before a sendjob is scheduled. it is set back to true after a successful txcomplete.
-    os_runloop_once();
-  }
+        //If value exceeds fixed limit transfer directly and do not wait till the array is full
+        if (false) {
+            do_send(&sendjob);
+            data_transmit_time = millis() + DATA_TRANSMIT_WINDOW;
+        }
+
+        //Increase counter
+        counter++;
+
+        //Set time where
+        data_fetch_time = millis() + DATA_FETCH_DELAY;
+    }
+    //Send 
+    if (data_transmit_time == 0 || data_transmit_time <= millis() || data_transmit_time + DATA_FETCH_DELAY > millis()) {
+
+        do_send(&sendjob);
+        data_transmit_time = millis() + DATA_TRANSMIT_WINDOW;
+    }
+
+
+    // put your main code here, to run repeatedly:
+    // Idea: Transmit every 5 Minutes. Transmit an array: 1. Pos = Value of Min 1, 2. Pos = Value of Min 2, 3. Pos = Value of Min 3.... last Pos = current Value
+    // This leaves room for an earlier transmit if a measurement value is out of range (e.g. too high)
+    //lpp.addAnalogInput(1,)
+
+    while(!flag_TXCOMPLETE) { //this flag is set to false each time before a sendjob is scheduled. it is set back to true after a successful txcomplete.
+        os_runloop_once();
+    }
 }
