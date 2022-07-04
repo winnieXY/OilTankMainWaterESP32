@@ -59,11 +59,10 @@ const unsigned TX_INTERVAL = 60;
  * Timing & Array Declarations
  *****************************************************************************/
 unsigned long int data_fetch_time = 0;
-unsigned long int data_transmit_time = 0;
-unsigned int counter = 1;
+unsigned int array_counter = 1;
 
 #define DATA_FETCH_DELAY 60000 //Fetch data Every minute
-#define DATA_TRANSMIT_WINDOW 300000 //Transmit every five minutes
+#define DATA_ARRAY_SIZE 5 //Usually transmit after 5 measurements 
 
 
 
@@ -78,7 +77,7 @@ void do_send(osjob_t* j){
         // Prepare upstream data transmission at the next possible time.
         LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
         //Reset Counter
-        counter = 1;
+        array_counter = 1;
         lpp.reset();
     }
     dprintln(F("Packet queued"));
@@ -181,36 +180,25 @@ void setup() {
     // Start LoRa job (sending automatically starts OTAA too)
     flag_TXCOMPLETE = false;
     do_send(&sendjob);
-
-    data_transmit_time = millis() + DATA_TRANSMIT_WINDOW;
-
 }
 
 void loop() {
     if (data_fetch_time == 0 || data_fetch_time <= millis() || data_fetch_time + DATA_FETCH_DELAY > millis()) {
         //Get data
         lpp.addAnalogOutput(0, DATA_FETCH_DELAY); //0 is the delay between every measurement
-        lpp.addGenericSensor(counter, 1);
-
-        //If value exceeds fixed limit transfer directly and do not wait till the array is full
-        if (false) {
-            do_send(&sendjob);
-            data_transmit_time = millis() + DATA_TRANSMIT_WINDOW;
-        }
+        lpp.addGenericSensor(array_counter, 1);
 
         //Increase counter
-        counter++;
+        array_counter++;
 
+        //If value exceeds fixed limit transfer directly and do not wait till the array is full
+        if (array_counter >= DATA_ARRAY_SIZE || false )  {
+            do_send(&sendjob);
+        }
+   
         //Set time where
         data_fetch_time = millis() + DATA_FETCH_DELAY;
     }
-    //Send 
-    if (data_transmit_time == 0 || data_transmit_time <= millis() || data_transmit_time + DATA_FETCH_DELAY > millis()) {
-
-        do_send(&sendjob);
-        data_transmit_time = millis() + DATA_TRANSMIT_WINDOW;
-    }
-
 
     // put your main code here, to run repeatedly:
     // Idea: Transmit every 5 Minutes. Transmit an array: 1. Pos = Value of Min 1, 2. Pos = Value of Min 2, 3. Pos = Value of Min 3.... last Pos = current Value
