@@ -3,8 +3,9 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <CayenneLPP.h>
+#include <util/atomic.h>
 
-#define DEBUG
+// #define DEBUG
 
 #ifdef DEBUG
 #define dprint(x)     Serial.print(x)
@@ -20,12 +21,19 @@
 /*****************************************************************************
  * LoRaWAN Settings
  ****************************************************************************/
+#define CFG_sx1276_radio 1
+#define CFG_eu868 1
 const lmic_pinmap lmic_pins = {
     .nss =  15,
     .rxtx = LMIC_UNUSED_PIN,
     .rst = 33,
-    .dio = {32, 27, LMIC_UNUSED_PIN},
+    .dio = {32, 27, 25},
+    // .rxtx_rx_active = 0,
+    // .rssi_cal = 8,              // LBT cal for the Adafruit Feather M0 LoRa, in dB
+    // .spi_freq = 8000000,
 };
+
+const lmic_pinmap *pPinMap = &lmic_pins;
 
 //Cayene LPP Variable
 CayenneLPP lpp(51); //51 would be save, 71 is okay as we send only every 5 minutes. 
@@ -59,11 +67,14 @@ const unsigned TX_INTERVAL = 60;
  *****************************************************************************/
 unsigned long int data_fetch_time = 0;
 unsigned int array_counter = 1;
+bool test = false;
+bool test2 = false;
 
 #define DATA_FETCH_DELAY 60000 //Fetch data Every minute
 #define DATA_ARRAY_SIZE 5 //Usually transmit after 5 measurements 
 
-
+unsigned long prelltime = 0; 
+volatile unsigned int watercounter = 0;
 
 /******************************************************************************
  * Lorawan Functions
@@ -159,40 +170,70 @@ void onEvent (ev_t ev) {
     }
 }
 
+void watercount() {
+    if (prelltime == 0 || prelltime <= millis() ) {
+        watercounter++;
+        prelltime = millis() + 250;
+    }
+}
 
 void setup() {
     // put your setup code here, to run once:
     #ifdef DEBUG
-        Serial.begin(9600);
+        Serial.begin(115200, SERIAL_8N1, 3, 1);
     #endif
     dprintln("Starting communication");
+
+    pinMode(16, OUTPUT);
+    pinMode(17, OUTPUT);
+
+    digitalWrite(16, true);
+    digitalWrite(17, true);
+
+    attachInterrupt(digitalPinToInterrupt(26), watercount, RISING);
+
+    SPI.begin(14,12,13,15);
 
     /****************************************************************************
      * Initialize RFM95 LoRa Chip
      ****************************************************************************/
     // LMIC init
-    os_init();
+    os_init(); //_ex(pPinMap);
+    
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
     lpp.reset();
-
+    
     // Start LoRa job (sending automatically starts OTAA too)
     flag_TXCOMPLETE = false;
     do_send(&sendjob);
+    dprintln("Finished initialisation!");
 }
 
 void loop() {
+    // dprintln("Test");
     if (data_fetch_time == 0 || data_fetch_time <= millis() || data_fetch_time + DATA_FETCH_DELAY > millis()) {
+        digitalWrite(17, false);
         dprintln("Get Data and transport it!");
+        digitalWrite(16, test);
+        // digitalWrite(17, !test);
+        test != test;
+
         //Get data
+        int watertmp = 0;
+        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+            watertmp = watercounter;
+            watercounter = 0;
+        }
+
         lpp.addAnalogOutput(0, DATA_FETCH_DELAY); //0 is the delay between every measurement
-        lpp.addGenericSensor(array_counter, 1);
+        lpp.addGenericSensor(array_counter, watertmp);
 
         //Increase counter
         array_counter++;
 
-        //If value exceeds fixed limit transfer directly and do not wait till the array is full
-        if (array_counter >= DATA_ARRAY_SIZE || false )  {
+        //If value exceeds fixed limit (20L per minute) transfer directly and do not wait till the array is full
+        if (array_counter >= DATA_ARRAY_SIZE || watertmp > 20 )  {
             dprintln("Send data to gateway");
             do_send(&sendjob);
         }
