@@ -276,10 +276,12 @@ void loop() {
         //If value exceeds fixed limit (20L per minute) transfer directly and do not wait till the array is full
         if (array_counter >= DATA_ARRAY_SIZE || watertmp > 20 )  {
             dprintln("Send data to gateway");
-            do_send(&sendjob);
+            do_send(&sendjob); //Arraycounter is resetted in do_send.
         }
-        //Increase counter
-        array_counter++;
+        else {
+            //Increase counter
+            array_counter++;
+        }
    
         //Set time where
         data_fetch_time = millis() + DATA_FETCH_DELAY;
