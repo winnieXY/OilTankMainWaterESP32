@@ -33,8 +33,6 @@ const lmic_pinmap lmic_pins = {
     // .spi_freq = 8000000,
 };
 
-const lmic_pinmap *pPinMap = &lmic_pins;
-
 //Cayene LPP Variable
 CayenneLPP lpp(51); //51 would be save, 71 is okay as we send only every 5 minutes. 
 
