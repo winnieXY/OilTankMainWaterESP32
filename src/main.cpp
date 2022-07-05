@@ -248,11 +248,11 @@ void setup() {
      * Initialize RFM95 LoRa Chip
      ****************************************************************************/
     // LMIC init
+    LMIC_setClockError(MAX_CLOCK_ERROR * 10 / 100);
     os_init(); //_ex(pPinMap);
     
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
-    LMIC_setClockError(MAX_CLOCK_ERROR * 10 / 100);
     lpp.reset();
     
     // Start LoRa job (sending automatically starts OTAA too)
