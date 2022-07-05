@@ -64,8 +64,6 @@ const unsigned TX_INTERVAL = 60;
  *****************************************************************************/
 unsigned long int data_fetch_time = 0;
 unsigned int array_counter = 1;
-bool test = false;
-bool test2 = false;
 
 #define DATA_FETCH_DELAY 60000 //Fetch data Every minute
 #define DATA_ARRAY_SIZE 5 //Usually transmit after 5 measurements 
@@ -232,13 +230,7 @@ void setup() {
     #ifdef DEBUG
         Serial.begin(115200, SERIAL_8N1, 3, 1);
     #endif
-    dprintln("Starting communication");
-
-    pinMode(16, OUTPUT);
-    pinMode(17, OUTPUT);
-
-    digitalWrite(16, true);
-    digitalWrite(17, true);
+    dprintln("Starting communication");;
 
     attachInterrupt(digitalPinToInterrupt(26), watercount, RISING);
 
@@ -264,11 +256,7 @@ void setup() {
 void loop() {
     // dprintln("Test");
     if (data_fetch_time == 0 || data_fetch_time <= millis()) {
-        digitalWrite(17, false);
         dprintln("Get Data and transport it!");
-        digitalWrite(16, test);
-        // digitalWrite(17, !test);
-        test != test;
 
         //Get data
         int watertmp = 0;
@@ -278,7 +266,7 @@ void loop() {
         }
 
         lpp.addAnalogOutput(0, DATA_FETCH_DELAY); //0 is the delay between every measurement
-        lpp.addGenericSensor(array_counter, watertmp);
+        lpp.addAnalogOutput(array_counter, watertmp);
 
         //Increase counter
         array_counter++;
