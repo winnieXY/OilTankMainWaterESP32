@@ -230,7 +230,10 @@ void setup() {
     #ifdef DEBUG
         Serial.begin(115200, SERIAL_8N1, 3, 1);
     #endif
-    dprintln("Starting communication");;
+    dprintln("Starting communication");
+
+    //TODO: Remove later - for debugging:
+    randomSeed(analogRead(2));
 
     attachInterrupt(digitalPinToInterrupt(26), watercount, RISING);
 
@@ -264,6 +267,8 @@ void loop() {
             watertmp = watercounter;
             watercounter = 0;
         }
+        watertmp = random(-8,22);
+        if (watertmp <0) { watertmp = 0;} 
 
         lpp.addAnalogOutput(0, DATA_FETCH_DELAY/1000); //0 is the delay between every measurement
         lpp.addAnalogOutput(array_counter, watertmp);
