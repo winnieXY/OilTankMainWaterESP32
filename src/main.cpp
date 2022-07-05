@@ -3,9 +3,10 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <CayenneLPP.h>
-#include <util/atomic.h>
+//#include <util/atomic.h>
+#include <Esp32Atomic.h>
 
-// #define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 #define dprint(x)     Serial.print(x)
@@ -21,13 +22,11 @@
 /*****************************************************************************
  * LoRaWAN Settings
  ****************************************************************************/
-#define CFG_sx1276_radio 1
-#define CFG_eu868 1
 const lmic_pinmap lmic_pins = {
     .nss =  15,
     .rxtx = LMIC_UNUSED_PIN,
     .rst = 33,
-    .dio = {32, 27, 25},
+    .dio = {32, 27, LMIC_UNUSED_PIN},
     // .rxtx_rx_active = 0,
     // .rssi_cal = 8,              // LBT cal for the Adafruit Feather M0 LoRa, in dB
     // .spi_freq = 8000000,
@@ -92,6 +91,13 @@ void do_send(osjob_t* j){
     // Next TX is scheduled after TX_COMPLETE event.
 }
 
+void printHex2(unsigned v) {
+    v &= 0xff;
+    if (v < 16)
+        Serial.print('0');
+    Serial.print(v, HEX);
+}
+
 void onEvent (ev_t ev) {
     dprint(os_getTime());
     dprint(": ");
@@ -113,60 +119,106 @@ void onEvent (ev_t ev) {
             break;
         case EV_JOINED:
             dprintln(F("EV_JOINED"));
-
+            {
+              u4_t netid = 0;
+              devaddr_t devaddr = 0;
+              u1_t nwkKey[16];
+              u1_t artKey[16];
+              LMIC_getSessionKeys(&netid, &devaddr, nwkKey, artKey);
+              dprint("netid: ");
+              dprintln(netid);
+              dprint("devaddr: ");
+              dprintln(devaddr);
+              dprint("AppSKey: ");
+              for (size_t i=0; i<sizeof(artKey); ++i) {
+                if (i != 0)
+                  dprint("-");
+                printHex2(artKey[i]);
+              }
+              dprintln("");
+              dprint("NwkSKey: ");
+              for (size_t i=0; i<sizeof(nwkKey); ++i) {
+                      if (i != 0)
+                              dprint("-");
+                      printHex2(nwkKey[i]);
+              }
+              dprintln();
+            }
             // Disable link check validation (automatically enabled
-            // during join, but not supported by TTN at this time).
+            // during join, but because slow data rates change max TX
+	    // size, we don't use it in this example.
             LMIC_setLinkCheckMode(0);
-            flag_TXCOMPLETE = true;
             break;
-        case EV_RFU1:
-            dprintln(F("EV_RFU1"));
-            break;
+        /*
+        || This event is defined but not used in the code. No
+        || point in wasting codespace on it.
+        ||
+        || case EV_RFU1:
+        ||     dprintln(F("EV_RFU1"));
+        ||     break;
+        */
         case EV_JOIN_FAILED:
             dprintln(F("EV_JOIN_FAILED"));
             break;
         case EV_REJOIN_FAILED:
             dprintln(F("EV_REJOIN_FAILED"));
             break;
-            break;
         case EV_TXCOMPLETE:
             dprintln(F("EV_TXCOMPLETE (includes waiting for RX windows)"));
             if (LMIC.txrxFlags & TXRX_ACK)
               dprintln(F("Received ack"));
             if (LMIC.dataLen) {
-              dprintln(F("Received "));
-              dprintln(LMIC.dataLen);
+              dprint(F("Received "));
+              dprint(LMIC.dataLen);
               dprintln(F(" bytes of payload"));
             }
-            flag_TXCOMPLETE = true;
+            // Schedule next transmission
+            // os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
             break;
         case EV_LOST_TSYNC:
             dprintln(F("EV_LOST_TSYNC"));
-            flag_TXCOMPLETE= true;
             break;
         case EV_RESET:
             dprintln(F("EV_RESET"));
-            flag_TXCOMPLETE = true;
             break;
         case EV_RXCOMPLETE:
             // data received in ping slot
             dprintln(F("EV_RXCOMPLETE"));
-            flag_TXCOMPLETE = true;
             break;
         case EV_LINK_DEAD:
             dprintln(F("EV_LINK_DEAD"));
-            flag_TXCOMPLETE = true;
             break;
         case EV_LINK_ALIVE:
             dprintln(F("EV_LINK_ALIVE"));
-            flag_TXCOMPLETE = true;
             break;
-         default:
-            dprintln(F("Unknown event"));
-            flag_TXCOMPLETE = true;
+        /*
+        || This event is defined but not used in the code. No
+        || point in wasting codespace on it.
+        ||
+        || case EV_SCAN_FOUND:
+        ||    dprintln(F("EV_SCAN_FOUND"));
+        ||    break;
+        */
+        case EV_TXSTART:
+            dprintln(F("EV_TXSTART"));
+            break;
+        case EV_TXCANCELED:
+            dprintln(F("EV_TXCANCELED"));
+            break;
+        case EV_RXSTART:
+            /* do not print anything -- it wrecks timing */
+            break;
+        case EV_JOIN_TXCOMPLETE:
+            dprintln(F("EV_JOIN_TXCOMPLETE: no JoinAccept"));
+            break;
+
+        default:
+            dprint(F("Unknown event: "));
+            dprintln((unsigned) ev);
             break;
     }
 }
+
 
 void watercount() {
     if (prelltime == 0 || prelltime <= millis() ) {
@@ -200,6 +252,7 @@ void setup() {
     
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
+    LMIC_setClockError(MAX_CLOCK_ERROR * 10 / 100);
     lpp.reset();
     
     // Start LoRa job (sending automatically starts OTAA too)
@@ -210,7 +263,7 @@ void setup() {
 
 void loop() {
     // dprintln("Test");
-    if (data_fetch_time == 0 || data_fetch_time <= millis() || data_fetch_time + DATA_FETCH_DELAY > millis()) {
+    if (data_fetch_time == 0 || data_fetch_time <= millis()) {
         digitalWrite(17, false);
         dprintln("Get Data and transport it!");
         digitalWrite(16, test);
@@ -219,7 +272,7 @@ void loop() {
 
         //Get data
         int watertmp = 0;
-        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        ATOMIC() {
             watertmp = watercounter;
             watercounter = 0;
         }
@@ -245,7 +298,7 @@ void loop() {
     // This leaves room for an earlier transmit if a measurement value is out of range (e.g. too high)
     //lpp.addAnalogInput(1,)
 
-    while(!flag_TXCOMPLETE) { //this flag is set to false each time before a sendjob is scheduled. it is set back to true after a successful txcomplete.
-        os_runloop_once();
-    }
+    // while(!flag_TXCOMPLETE) { //this flag is set to false each time before a sendjob is scheduled. it is set back to true after a successful txcomplete.
+    os_runloop_once();
+    // }
 }
