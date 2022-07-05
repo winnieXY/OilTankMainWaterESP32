@@ -265,17 +265,16 @@ void loop() {
             watercounter = 0;
         }
 
-        lpp.addAnalogOutput(0, DATA_FETCH_DELAY); //0 is the delay between every measurement
+        lpp.addAnalogOutput(0, DATA_FETCH_DELAY/1000); //0 is the delay between every measurement
         lpp.addAnalogOutput(array_counter, watertmp);
-
-        //Increase counter
-        array_counter++;
 
         //If value exceeds fixed limit (20L per minute) transfer directly and do not wait till the array is full
         if (array_counter >= DATA_ARRAY_SIZE || watertmp > 20 )  {
             dprintln("Send data to gateway");
             do_send(&sendjob);
         }
+        //Increase counter
+        array_counter++;
    
         //Set time where
         data_fetch_time = millis() + DATA_FETCH_DELAY;
