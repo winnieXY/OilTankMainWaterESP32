@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <driver/adc.h>
 #include <EEPROM.h>
+#include <TimeLib.h>
 
 #define DEBUG
 
@@ -62,6 +63,12 @@ static osjob_t sendjob;
 // cycle limitations).
 const unsigned TX_INTERVAL = 60;
 
+uint32_t userUTCTime; // Seconds since the UTC epoch
+
+#define TIMEUPDATE_SPAN 86400000 //Once per day
+unsigned long timeupdate = 0;
+
+
 /******************************************************************************
  * Timing & Array Declarations
  *****************************************************************************/
@@ -71,12 +78,12 @@ unsigned int array_counter = 1;
 //This defines the default values which are used initially if the EEPROM is empty. If the EEPROM holds an actual
 //value the value from the EEPROM is used instead.
 
-#define DATA_SUMMATION_PERIOD 60000 //Default value in ms - Fetch data Every minute
-                                    //EEPROM Address "0" -> Data is stored in s and needs to be multiplied by 1000 to get the PERIOD
+#define DATA_SUMMATION_PERIOD 60000                 //Default value in ms - Fetch data Every minute
+                                                    //EEPROM Address "0" -> Data is stored in s and needs to be multiplied by 1000 to get the PERIOD
 unsigned int data_summation_period = 0;
 
-#define DATA_ARRAY_SIZE 5           //Default value - Usually transmit after 5 measurements
-                                    //EEPROM Address "1" -> Data is stored as is
+#define DATA_ARRAY_SIZE 5                           //Default value - Usually transmit after 5 measurements
+                                                    //EEPROM Address "1" -> Data is stored as is
 unsigned int data_array_size = 0;
 
 #define DATA_PERIOD_EXCEED_ALARM 20                 //Default value - ransfer data immediately if the data count per period exceeds this value
@@ -97,11 +104,75 @@ volatile unsigned int datacounter = 0;
 /******************************************************************************
  * Lorawan Functions
  *****************************************************************************/
+void user_request_network_time_callback(void *pVoidUserUTCTime, int flagSuccess) {
+    // Explicit conversion from void* to uint32_t* to avoid compiler errors
+    uint32_t *pUserUTCTime = (uint32_t *) pVoidUserUTCTime;
+
+    // A struct that will be populated by LMIC_getNetworkTimeReference.
+    // It contains the following fields:
+    //  - tLocal: the value returned by os_GetTime() when the time
+    //            request was sent to the gateway, and
+    //  - tNetwork: the seconds between the GPS epoch and the time
+    //              the gateway received the time request
+    lmic_time_reference_t lmicTimeReference;
+
+    if (flagSuccess != 1) {
+        dprintln(F("USER CALLBACK: Not a success"));
+        return;
+    }
+
+    // Populate "lmic_time_reference"
+    flagSuccess = LMIC_getNetworkTimeReference(&lmicTimeReference);
+    if (flagSuccess != 1) {
+        dprintln(F("USER CALLBACK: LMIC_getNetworkTimeReference didn't succeed"));
+        return;
+    }
+
+    // Update userUTCTime, considering the difference between the GPS and UTC
+    // epoch, and the leap seconds
+    *pUserUTCTime = lmicTimeReference.tNetwork + 315964800;
+
+    // Add the delay between the instant the time was transmitted and
+    // the current time
+
+    // Current time, in ticks
+    ostime_t ticksNow = os_getTime();
+    // Time when the request was sent, in ticks
+    ostime_t ticksRequestSent = lmicTimeReference.tLocal;
+    uint32_t requestDelaySec = osticks2ms(ticksNow - ticksRequestSent) / 1000;
+    *pUserUTCTime += requestDelaySec;
+
+    // Update the system time with the time read from the network
+    setTime(*pUserUTCTime);
+
+    dprint(F("The current UTC time is: "));
+    dprint(hour());
+    dprint(minute());
+    dprint(second());
+    dprint(' ');
+    dprint(day());
+    dprint('/');
+    dprint(month());
+    dprint('/');
+    dprint(year());
+    dprintln();
+}
+
+
+
+
 void do_send(osjob_t* j){
     // Check if there is not a current TX/RX job running
     if (LMIC.opmode & OP_TXRXPEND) {
         dprintln(F("OP_TXRXPEND, not sending"));
     } else {
+        unsigned long now = millis();
+        if (timeupdate == 0 || now - timeupdate >= TIMEUPDATE_SPAN ) {
+            // Schedule a network time request at the next possible time
+            LMIC_requestNetworkTime(user_request_network_time_callback, &userUTCTime);
+            timeupdate = millis();
+        }
+        
         // Prepare upstream data transmission at the next possible time.
         LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
         lpp.reset();
@@ -311,7 +382,7 @@ void setup() {
      ****************************************************************************/
     // LMIC init
     LMIC_setClockError(MAX_CLOCK_ERROR * 10 / 100);
-    os_init(); //_ex(pPinMap);
+    os_init();
     
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
