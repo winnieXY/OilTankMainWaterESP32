@@ -7,6 +7,7 @@
 #include <Esp32Atomic.h>
 #include <WiFi.h>
 #include <driver/adc.h>
+#include <EEPROM.h>
 
 #define DEBUG
 
@@ -67,9 +68,24 @@ const unsigned TX_INTERVAL = 60;
 unsigned long int data_fetch_time = 0;
 unsigned int array_counter = 1;
 
-#define DATA_SUMMATION_PERIOD 60000 //Fetch data Every minute
-#define DATA_ARRAY_SIZE 5 //Usually transmit after 5 measurements 
-#define DATA_PERIOD_EXCEED_ALARM 20 //Transfer data immediately if the data count per period exceeds this value
+//This defines the default values which are used initially if the EEPROM is empty. If the EEPROM holds an actual
+//value the value from the EEPROM is used instead.
+
+#define DATA_SUMMATION_PERIOD 60000 //Default value in ms - Fetch data Every minute
+                                    //EEPROM Address "0" -> Data is stored in s and needs to be multiplied by 1000 to get the PERIOD
+unsigned int data_summation_period = 0;
+
+#define DATA_ARRAY_SIZE 5           //Default value - Usually transmit after 5 measurements
+                                    //EEPROM Address "1" -> Data is stored as is
+unsigned int data_array_size = 0;
+
+#define DATA_PERIOD_EXCEED_ALARM 20                 //Default value - ransfer data immediately if the data count per period exceeds this value
+#define DATA_PERIOD_EXCEED_ALARM_MULTIPLICATOR 1    //EEPROM Address "2" & "3"
+                                                    //Value in Address "2" is multiplied with Value in Address "3"
+                                                    //e.g. "20" x "1" => 20
+                                                    //or   "20" x "10" => 200
+unsigned int data_period_exceed_alarm = 0;
+unsigned int data_period_exceed_alarm_multiplicator = 0;
 
 //Debouncing the interrupt. 
 #define DEBOUNCE_TIME 250 //defaulting to 250ms debounce time
@@ -240,6 +256,37 @@ void setup() {
     #endif
     dprintln("Starting communication");
 
+    /**************************************************************************
+     * Read in EEPROM with values from last run:
+     *************************************************************************/
+    EEPROM.get(0,data_summation_period);
+    if (!isnan(data_summation_period)) {
+        data_summation_period *= 1000;
+    } 
+    else {
+        data_summation_period = DATA_SUMMATION_PERIOD;
+        EEPROM.put(0, data_summation_period);
+    }
+
+    EEPROM.get(1, data_array_size);
+    if (isnan(data_array_size)) {
+        data_array_size = DATA_ARRAY_SIZE;
+        EEPROM.put(1, data_array_size);
+    }
+
+    EEPROM.get(2, data_period_exceed_alarm);
+    EEPROM.get(3, data_period_exceed_alarm_multiplicator);
+    if (!isnan(data_period_exceed_alarm) && !isnan(data_period_exceed_alarm_multiplicator)) {
+        data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
+    }
+    else {
+        data_period_exceed_alarm = DATA_PERIOD_EXCEED_ALARM;
+        data_period_exceed_alarm_multiplicator = DATA_PERIOD_EXCEED_ALARM_MULTIPLICATOR;
+        EEPROM.put(2, data_period_exceed_alarm);
+        EEPROM.put(3, data_period_exceed_alarm_multiplicator);
+        data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
+    }
+
     //Power savings: see https://www.mischianti.org/2021/03/06/esp32-practical-power-saving-manage-wifi-and-cpu-1/
     //and https://github.com/espressif/arduino-esp32/issues/1077
     //Stop Bluetooth for power saving
@@ -284,7 +331,7 @@ void loop() {
     // Idea: Transmit every 5 Minutes. Transmit an array: 1. Pos = Value of Min 1, 2. Pos = Value of Min 2, 3. Pos = Value of Min 3.... last Pos = current Value
     // This leaves room for an earlier transmit if a measurement value is out of range (e.g. too high)
     unsigned long now = millis();
-    if (data_fetch_time == 0 || now - data_fetch_time >= DATA_SUMMATION_PERIOD) {
+    if (data_fetch_time == 0 || now - data_fetch_time >= data_summation_period) {
         dprintln("Get Data and transport it!");
 
         //Get data
@@ -296,11 +343,11 @@ void loop() {
         datatmp = random(-8,22);
         if (datatmp <0) { datatmp = 0;} 
 
-        lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
+        lpp.addAnalogOutput(0, data_summation_period/1000); //0 is the delay between every measurement in seconds
         lpp.addAnalogOutput(array_counter, datatmp);
 
         //If value exceeds fixed limit transfer directly and do not wait till the array is full
-        if (array_counter >= DATA_ARRAY_SIZE || datatmp > DATA_PERIOD_EXCEED_ALARM )  {
+        if (array_counter >= data_array_size || datatmp > data_period_exceed_alarm )  {
             dprintln("Send data to gateway");
             do_send(&sendjob);
 
