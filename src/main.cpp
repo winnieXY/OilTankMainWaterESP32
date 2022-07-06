@@ -5,6 +5,8 @@
 #include <CayenneLPP.h>
 //#include <util/atomic.h>
 #include <Esp32Atomic.h>
+#include <WiFi.h>
+#include <driver/adc.h>
 
 #define DEBUG
 
@@ -235,6 +237,17 @@ void setup() {
         Serial.begin(115200, SERIAL_8N1, 3, 1);
     #endif
     dprintln("Starting communication");
+
+    //Power savings: see https://www.mischianti.org/2021/03/06/esp32-practical-power-saving-manage-wifi-and-cpu-1/
+    //and https://github.com/espressif/arduino-esp32/issues/1077
+    //Stop Bluetooth for power saving
+    btStop();
+    //Disable wifi to save energy
+    adc_power_release();
+    WiFi.mode(WIFI_OFF);
+
+    //Decrease CPU Frequency, we don't need so much computing power
+    setCpuFrequencyMhz(80);
 
     //TODO: Remove later - for debugging:
     randomSeed(analogRead(2));
