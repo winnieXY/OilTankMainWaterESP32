@@ -265,6 +265,9 @@ void setup() {
     
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
+    LMIC_setAdrMode(1);
+    LMIC_setLinkCheckMode(1);
+
     lpp.reset();
     
     // Start LoRa job (sending automatically starts OTAA too)
