@@ -222,8 +222,10 @@ void onEvent (ev_t ev) {
     }
 }
 
-
-void watercount() {
+/******************************************************************************
+ * Interrupt handling function - simply count a value using a debouncer
+ *****************************************************************************/
+void datacount() {
     unsigned long now = millis();
     if (debouncetime == 0 || now - debouncetime >= DEBOUNCE_TIME ) {
         datacounter++;
@@ -252,7 +254,8 @@ void setup() {
     //TODO: Remove later - for debugging:
     randomSeed(analogRead(2));
 
-    attachInterrupt(digitalPinToInterrupt(26), watercount, RISING);
+    //Attach to interrupt 
+    attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
 
     SPI.begin(14,12,13,15);
 
