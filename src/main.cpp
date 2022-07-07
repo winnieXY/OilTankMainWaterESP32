@@ -188,8 +188,39 @@ void printHex2(unsigned v) {
     Serial.print(v, HEX);
 }
 
-void parseDownstream(void) {
-    
+void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen) {
+    DynamicJsonDocument jsonBuffer(256);
+    CayenneLPPDecode lppd;
+
+    JsonObject root = jsonBuffer.to<JsonObject>();
+
+    for (int i=databeg; i<= dataLen; i++) {
+        lppd.write(frame[i]);
+    }
+    if (lppd.isValid()) {
+        //parse
+        lppd.decode(root);
+
+        if (root.containsKey("0")) {
+            data_summation_period = root["0"];
+            EEPROM.put(0, float(data_summation_period));
+        }
+        if (root.containsKey("1")) {
+            data_array_size = root["1"];
+            EEPROM.put(1, float(data_array_size));
+        }
+        if (root.containsKey("2") && root.containsKey("3")) {
+            data_period_exceed_alarm = root["2"];
+            data_period_exceed_alarm_multiplicator = root["3"];
+            EEPROM.put(2, float(data_period_exceed_alarm));
+            EEPROM.put(3, float(data_period_exceed_alarm_multiplicator));
+            data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
+        }
+
+    }
+    else {
+        dprintln("Recieved downlink is no valid cayenneLPP!");
+    }
 }
 
 void onEvent (ev_t ev) {
@@ -265,6 +296,8 @@ void onEvent (ev_t ev) {
               dprint(F("Received "));
               dprint(LMIC.dataLen);
               dprintln(F(" bytes of payload"));
+
+              parseDownstream(LMIC.frame, LMIC.dataBeg, LMIC.dataLen);
             }
             // Schedule next transmission
             // os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
