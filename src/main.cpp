@@ -174,7 +174,7 @@ void do_send(osjob_t* j){
         }
         
         // Prepare upstream data transmission at the next possible time.
-        LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 1);
+        LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
         lpp.reset();
     }
     dprintln(F("Packet queued"));
