@@ -272,18 +272,50 @@ void printHex2(unsigned v)
 void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
 {
 
-    dprintln(dataLen);
-    if (dataLen = 2)
-    {
-        dprintln(frame[databeg]);
-        dprintln(frame[databeg + 1]);
-        data_period_exceed_alarm.value  = (frame[databeg] << 8) + frame[databeg + 1];
+//     dprintln(dataLen);
+//     if (dataLen = 2)
+//     {
+//         dprintln(frame[databeg]);
+//         dprintln(frame[databeg + 1]);
+//         data_period_exceed_alarm.value  = (frame[databeg] << 8) + frame[databeg + 1];
 
-        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA, data_period_exceed_alarm.byte[0]);
-        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 1, data_period_exceed_alarm.byte[1]);
-        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 2, data_period_exceed_alarm.byte[2]);
-        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 3, data_period_exceed_alarm.byte[3]);
-        EEPROM.commit();
+//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA, data_period_exceed_alarm.byte[0]);
+//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 1, data_period_exceed_alarm.byte[1]);
+//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 2, data_period_exceed_alarm.byte[2]);
+//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 3, data_period_exceed_alarm.byte[3]);
+//         EEPROM.commit();
+// void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen) {
+    DynamicJsonDocument jsonBuffer(256);
+    CayenneLPPDecode lppd;
+
+    JsonObject root = jsonBuffer.to<JsonObject>();
+
+    for (int i=databeg; i<= dataLen; i++) {
+        lppd.write(frame[i]);
+    }
+    if (lppd.isValid()) {
+        //parse
+        lppd.decode(root);
+
+        if (root.containsKey("0")) {
+            data_summation_period = root["0"];
+            EEPROM.put(0, float(data_summation_period));
+        }
+        if (root.containsKey("1")) {
+            data_array_size = root["1"];
+            EEPROM.put(1, float(data_array_size));
+        }
+        if (root.containsKey("2") && root.containsKey("3")) {
+            data_period_exceed_alarm = root["2"];
+            data_period_exceed_alarm_multiplicator = root["3"];
+            EEPROM.put(2, float(data_period_exceed_alarm));
+            EEPROM.put(3, float(data_period_exceed_alarm_multiplicator));
+            data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
+        }
+
+    }
+    else {
+        dprintln("Recieved downlink is no valid cayenneLPP!");
     }
 }
 
