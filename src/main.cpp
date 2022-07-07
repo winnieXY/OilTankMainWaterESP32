@@ -3,12 +3,12 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <CayenneLPP.h>
-//#include <util/atomic.h>
 #include <Esp32Atomic.h>
 #include <esp_wifi.h>
 #include <driver/adc.h>
 #include <EEPROM.h>
 #include <TimeLib.h>
+#include <CayenneLPPDecode.h>
 
 #define DEBUG
 
@@ -186,6 +186,10 @@ void printHex2(unsigned v) {
     if (v < 16)
         Serial.print('0');
     Serial.print(v, HEX);
+}
+
+void parseDownstream(void) {
+    
 }
 
 void onEvent (ev_t ev) {
