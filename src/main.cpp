@@ -216,7 +216,6 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen) {
             EEPROM.put(3, float(data_period_exceed_alarm_multiplicator));
             data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
         }
-
     }
     else {
         dprintln("Recieved downlink is no valid cayenneLPP!");
