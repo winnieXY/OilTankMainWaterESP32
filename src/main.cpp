@@ -82,7 +82,7 @@ unsigned int array_counter = 1;
                                                     //EEPROM Address "0" -> Data is stored in s and needs to be multiplied by 1000 to get the PERIOD
 unsigned int data_summation_period = 0;
 
-#define DATA_ARRAY_SIZE 5                           //Default value - Usually transmit after 5 measurements
+#define DATA_ARRAY_SIZE 5                           //Default value - Usually transmit after 5 measurement - only transmit faster if on a good datarate
                                                     //EEPROM Address "1" -> Data is stored as is
 unsigned int data_array_size = 0;
 
@@ -188,6 +188,9 @@ void printHex2(unsigned v) {
     Serial.print(v, HEX);
 }
 
+// Only partially used - the DATA_ARRAY_SIZE is calculated based on the datarate used for transmission.
+// the exceed alarm is just needed with a bad data rate - otherwise it is ignored as we transmit frequently
+// enough.
 void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen) {
     DynamicJsonDocument jsonBuffer(256);
     CayenneLPPDecode lppd;
@@ -201,19 +204,11 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen) {
         //parse
         lppd.decode(root);
 
-        if (root.containsKey("0")) {
-            data_summation_period = root["0"];
-            EEPROM.put(0, float(data_summation_period));
-        }
-        if (root.containsKey("1")) {
-            data_array_size = root["1"];
-            EEPROM.put(1, float(data_array_size));
-        }
         if (root.containsKey("2") && root.containsKey("3")) {
             data_period_exceed_alarm = root["2"];
             data_period_exceed_alarm_multiplicator = root["3"];
-            EEPROM.put(2, float(data_period_exceed_alarm));
-            EEPROM.put(3, float(data_period_exceed_alarm_multiplicator));
+            EEPROM_put(2, data_period_exceed_alarm);
+            EEPROM_put(3, data_period_exceed_alarm_multiplicator);
             data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
         }
     }
@@ -268,19 +263,7 @@ void onEvent (ev_t ev) {
               }
               dprintln();
             }
-            // Disable link check validation (automatically enabled
-            // during join, but because slow data rates change max TX
-	    // size, we don't use it in this example.
-            //LMIC_setLinkCheckMode(0);
             break;
-        /*
-        || This event is defined but not used in the code. No
-        || point in wasting codespace on it.
-        ||
-        || case EV_RFU1:
-        ||     dprintln(F("EV_RFU1"));
-        ||     break;
-        */
         case EV_JOIN_FAILED:
             dprintln(F("EV_JOIN_FAILED"));
             break;
@@ -298,8 +281,23 @@ void onEvent (ev_t ev) {
 
               parseDownstream(LMIC.frame, LMIC.dataBeg, LMIC.dataLen);
             }
-            // Schedule next transmission
-            // os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
+            //Calculate next DATA_ARRAY_SIZE based on SF level for next transmission
+            //SF7 & 8: => 1
+            //SF9 & 10: => 2
+            //SF11 & 12: => 5
+            switch (LMIC.datarate) {
+                case SF7:
+                case SF8:
+                    data_array_size = 1;
+                    break;
+                case SF9:
+                case SF10:
+                    data_array_size = 2;
+                    break;
+                default:
+                    data_array_size = DATA_ARRAY_SIZE;
+                    break;
+            }
             break;
         case EV_LOST_TSYNC:
             dprintln(F("EV_LOST_TSYNC"));
@@ -317,14 +315,6 @@ void onEvent (ev_t ev) {
         case EV_LINK_ALIVE:
             dprintln(F("EV_LINK_ALIVE"));
             break;
-        /*
-        || This event is defined but not used in the code. No
-        || point in wasting codespace on it.
-        ||
-        || case EV_SCAN_FOUND:
-        ||    dprintln(F("EV_SCAN_FOUND"));
-        ||    break;
-        */
         case EV_TXSTART:
             dprintln(F("EV_TXSTART"));
             break;
@@ -356,7 +346,22 @@ void datacount() {
     }
 }
 
+short EEPROM_get(int pos, int defaultVal) {
+    int tmp = EEPROM.read(pos);
+    if (tmp == 255) return defaultVal;
+    return tmp;
+}
+
+void EEPROM_put(int pos, int value) {
+    EEPROM.write(pos, value);
+}
+
 void setup() {
+    //Erase EEPROM once, after that delete that loop
+    for(int i = 0; i < 512; i++){
+        EEPROM.write(i,255);
+    }
+
     // put your setup code here, to run once:
     #ifdef DEBUG
         Serial.begin(115200, SERIAL_8N1, 3, 1);
@@ -366,37 +371,11 @@ void setup() {
     /**************************************************************************
      * Read in EEPROM with values from last run:
      *************************************************************************/
-    // float tmp;
-    // float tmp2;
-    // EEPROM.get(0,tmp);
-    // if (!isnan(tmp)) {
-    //     data_summation_period = tmp * 1000;
-    // } 
-    // else {
-    //     data_summation_period = DATA_SUMMATION_PERIOD;
-    //     EEPROM.put(0, float(data_summation_period));
-    // }
 
-    // EEPROM.get(1, tmp);
-    // if (isnan(tmp)) {
-    //     data_array_size = DATA_ARRAY_SIZE;
-    //     EEPROM.put(1, float(data_array_size));
-    // } else {
-    //     data_array_size = tmp;
-    // }
+    data_period_exceed_alarm = EEPROM_get(2, DATA_PERIOD_EXCEED_ALARM);
+    data_period_exceed_alarm_multiplicator = EEPROM_get(3, DATA_PERIOD_EXCEED_ALARM_MULTIPLICATOR);
+    data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
 
-    // EEPROM.get(2, tmp);
-    // EEPROM.get(3, tmp2);
-    // if (!isnan(tmp) && !isnan(tmp2)) {
-    //     data_period_exceed_alarm = tmp * tmp2;
-    // }
-    // else {
-    //     data_period_exceed_alarm = DATA_PERIOD_EXCEED_ALARM;
-    //     data_period_exceed_alarm_multiplicator = DATA_PERIOD_EXCEED_ALARM_MULTIPLICATOR;
-    //     EEPROM.put(2, float(data_period_exceed_alarm));
-    //     EEPROM.put(3, float(data_period_exceed_alarm_multiplicator));
-    //     data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
-    // }
 
     //Power savings: see https://www.mischianti.org/2021/03/06/esp32-practical-power-saving-manage-wifi-and-cpu-1/
     //and https://github.com/espressif/arduino-esp32/issues/1077
@@ -406,8 +385,6 @@ void setup() {
     esp_wifi_disconnect();
     esp_wifi_stop();
     esp_wifi_deinit();
-    // adc_power_off(); 
-    //adc_power_release(); // doesn't work
 
     //Decrease CPU Frequency, we don't need so much computing power
     setCpuFrequencyMhz(80);
@@ -418,11 +395,10 @@ void setup() {
     //Attach to interrupt 
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
 
-    SPI.begin(14,12,13,15);
-
     /****************************************************************************
      * Initialize RFM95 LoRa Chip
      ****************************************************************************/
+    SPI.begin(14,12,13,15);
     // LMIC init
     LMIC_setClockError(MAX_CLOCK_ERROR * 10 / 100);
     os_init();
@@ -461,7 +437,7 @@ void loop() {
         lpp.addAnalogOutput(array_counter, datatmp);
 
         //If value exceeds fixed limit transfer directly and do not wait till the array is full
-        if (array_counter >= DATA_ARRAY_SIZE || datatmp > DATA_PERIOD_EXCEED_ALARM )  {
+        if (array_counter >= data_array_size || datatmp > data_period_exceed_alarm )  {
             dprintln("Send data to gateway");
             do_send(&sendjob);
 
