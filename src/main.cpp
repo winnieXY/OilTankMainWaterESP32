@@ -407,6 +407,7 @@ void setup() {
     LMIC_reset();
     LMIC_setAdrMode(1);
     LMIC_setLinkCheckMode(1);
+    LMIC_setBatteryLevel(MCMD_DEVS_EXT_POWER);
 
     lpp.reset();
     
