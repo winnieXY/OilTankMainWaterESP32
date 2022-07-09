@@ -383,9 +383,6 @@ void setup() {
     //Decrease CPU Frequency, we don't need so much computing power
     setCpuFrequencyMhz(80);
 
-    //TODO: Remove later - for debugging:
-    randomSeed(analogRead(2));
-
     //Attach to interrupt 
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
 
