@@ -8,7 +8,7 @@
 #include <driver/adc.h>
 #include <EEPROM.h>
 #include <TimeLib.h>
-#include <CayenneLPPDecode.h>
+
 
 #define DEBUG
 
@@ -188,32 +188,35 @@ void printHex2(unsigned v) {
     Serial.print(v, HEX);
 }
 
+short EEPROM_get(int pos, int defaultVal) {
+    int tmp = EEPROM.read(pos);
+    if (tmp == 255) return defaultVal;
+    return tmp;
+}
+
+void EEPROM_put(int pos, int value) {
+    EEPROM.write(pos, value);
+}
+
 // Only partially used - the DATA_ARRAY_SIZE is calculated based on the datarate used for transmission.
 // the exceed alarm is just needed with a bad data rate - otherwise it is ignored as we transmit frequently
 // enough.
 void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen) {
-    DynamicJsonDocument jsonBuffer(256);
-    CayenneLPPDecode lppd;
 
-    JsonObject root = jsonBuffer.to<JsonObject>();
-
-    for (int i=databeg; i<= dataLen; i++) {
-        lppd.write(frame[i]);
-    }
-    if (lppd.isValid()) {
-        //parse
-        lppd.decode(root);
-
-        if (root.containsKey("2") && root.containsKey("3")) {
-            data_period_exceed_alarm = root["2"];
-            data_period_exceed_alarm_multiplicator = root["3"];
-            EEPROM_put(2, data_period_exceed_alarm);
-            EEPROM_put(3, data_period_exceed_alarm_multiplicator);
-            data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
+    dprintln(dataLen);
+    if (dataLen = 2) {
+        dprintln(frame[databeg]);
+        dprintln(frame[databeg+1]);
+        unsigned int tmp = ( frame[databeg] << 8 ) + frame[databeg+1];
+        dprintln(tmp);
+        data_period_exceed_alarm_multiplicator = 1;
+        while (tmp > 254) {
+            data_period_exceed_alarm_multiplicator *= 10;
+            tmp = tmp / data_period_exceed_alarm_multiplicator;
         }
-    }
-    else {
-        dprintln("Recieved downlink is no valid cayenneLPP!");
+        data_period_exceed_alarm = tmp * data_period_exceed_alarm_multiplicator;
+        EEPROM_put(2, tmp);
+        EEPROM_put(3, data_period_exceed_alarm_multiplicator);
     }
 }
 
@@ -286,12 +289,12 @@ void onEvent (ev_t ev) {
             //SF9 & 10: => 2
             //SF11 & 12: => 5
             switch (LMIC.datarate) {
-                case SF7:
-                case SF8:
+                case LORAWAN_DR5:
+                case LORAWAN_DR4:
                     data_array_size = 1;
                     break;
-                case SF9:
-                case SF10:
+                case LORAWAN_DR3:
+                case LORAWAN_DR2:
                     data_array_size = 2;
                     break;
                 default:
@@ -346,21 +349,12 @@ void datacount() {
     }
 }
 
-short EEPROM_get(int pos, int defaultVal) {
-    int tmp = EEPROM.read(pos);
-    if (tmp == 255) return defaultVal;
-    return tmp;
-}
-
-void EEPROM_put(int pos, int value) {
-    EEPROM.write(pos, value);
-}
-
 void setup() {
-    //Erase EEPROM once, after that delete that loop
-    for(int i = 0; i < 512; i++){
-        EEPROM.write(i,255);
-    }
+    // //Erase EEPROM once, after that delete that loop
+    // for(int i = 0; i < 512; i++){
+    //     EEPROM.write(i,255);
+    // }
+    // while (true) {}
 
     // put your setup code here, to run once:
     #ifdef DEBUG
@@ -431,14 +425,12 @@ void loop() {
             datatmp = datacounter;
             datacounter = 0;
         }
-        datatmp = random(-8,22);
-        if (datatmp <0) { datatmp = 0;} 
 
         lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
         lpp.addAnalogOutput(array_counter, datatmp);
 
         //If value exceeds fixed limit transfer directly and do not wait till the array is full
-        if (array_counter >= data_array_size || datatmp > data_period_exceed_alarm )  {
+        if (array_counter >= data_array_size || datatmp > DATA_PERIOD_EXCEED_ALARM )  {
             dprintln("Send data to gateway");
             do_send(&sendjob);
 
