@@ -383,6 +383,8 @@ void setup() {
     //Decrease CPU Frequency, we don't need so much computing power
     setCpuFrequencyMhz(80);
 
+    pinMode(26, INPUT_PULLUP);
+    
     //Attach to interrupt 
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
 
