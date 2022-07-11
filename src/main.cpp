@@ -74,6 +74,7 @@ unsigned long timeupdate = 0;
  *****************************************************************************/
 unsigned long int data_fetch_time = 0;
 unsigned int array_counter = 1;
+unsigned int data_count_sum = 0;
 
 //This defines the default values which are used initially if the EEPROM is empty. If the EEPROM holds an actual
 //value the value from the EEPROM is used instead.
@@ -424,17 +425,26 @@ void loop() {
             datatmp = datacounter;
             datacounter = 0;
         }
+        data_count_sum += datatmp;
 
         lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
         lpp.addAnalogOutput(array_counter, datatmp);
 
-        //If value exceeds fixed limit transfer directly and do not wait till the array is full
-        if (array_counter >= data_array_size || datatmp > DATA_PERIOD_EXCEED_ALARM )  {
+        //Transmit the value only if the sum is != 0 and the arraycounter is bigger than it should be (this is depended of the Lora DataRate)
+        //OR transmit if the array_counter is bigger than it's max allowed size (defaults currently to 5)
+        //OR transmit directly if the measured data is bigger than a user defined treshhold
+        //
+        //Especially the first check prevents transfers of data without any need as zero measurements will be delayed until the array size is filled up till maximum
+        //So if there is no flow at all the data will be transferred only every 5 minutes. With DR5 (SF7) we are allowed to transmit ~18 messages per hour on average 
+        //(every three minutes) to fullfill the TTN fair usage policy. This change will allow us to do so if there is not that much flow most of the day. 
+        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > DATA_PERIOD_EXCEED_ALARM )  {
             dprintln("Send data to gateway");
             do_send(&sendjob);
 
             //Reset Counter
             array_counter = 1;
+            //Reset Data Count Summation
+            data_count_sum = 0;
         }
         else {
             //Increase counter if not sending data to gateway
