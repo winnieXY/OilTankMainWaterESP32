@@ -412,9 +412,6 @@ void setup() {
 }
 
 void loop() {
-    // dprintln("Test");
-    // Idea: Transmit every 5 Minutes. Transmit an array: 1. Pos = Value of Min 1, 2. Pos = Value of Min 2, 3. Pos = Value of Min 3.... last Pos = current Value
-    // This leaves room for an earlier transmit if a measurement value is out of range (e.g. too high)
     unsigned long now = millis();
     if (data_fetch_time == 0 || now - data_fetch_time >= DATA_SUMMATION_PERIOD) {
         dprintln("Get Data and transport it!");
