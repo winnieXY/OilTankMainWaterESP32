@@ -8,7 +8,7 @@
 #include <driver/adc.h>
 #include <EEPROM.h>
 #include <TimeLib.h>
-
+#include <RunningMedian.h>
 
 #define DEBUG
 
@@ -101,6 +101,30 @@ unsigned long debouncetime = 0;
 
 //Watercounter which is used within the interrupt; Number corresponds to liter = 1 Interrupt => 1 SI Unit (e.g. 1 L, 1 W, ...)
 volatile unsigned int datacounter = 0;
+
+/******************************************************************************
+ * Begin US-100 Setup
+ *****************************************************************************/
+unsigned long deltaMessungSekunden = 1200; //Zeitintervall (Sekunden) nach dem eine Messung erfolgt
+unsigned long deltaMeldungSekunden = 600; // Zeitintervall (Sekunden) nach dem eine LoraWAN-Meldung erfolgt (0 bedeutet nie)
+
+const int DISTANCE_RANGE_BEGIN = 1340; // Maximale Distanz in mm (Sensor > Tankboden)
+const double LITER_PER_MM = 3.68;
+
+// US-100 ultrasonic rangefinder:
+unsigned int HByte = 0, LByte = 0;
+int level = 0, lastLevel = 0, temp = 0, lastTemp = 0, junk, US100temp = 0, Average = 0, Distance = 0;
+RunningMedian US100distance = RunningMedian(27);
+
+unsigned long jetztMillis = 0;
+unsigned long deltaMessungMillis = deltaMessungSekunden * 1000, letzteMessungMillis = 0;
+unsigned long deltaMeldungMillis = deltaMeldungSekunden * 1000, letzteMeldungMillis = 0;
+
+/******************************************************************************
+ * End US-100 Setup
+ *****************************************************************************/
+
+
 
 /******************************************************************************
  * Lorawan Functions
@@ -349,6 +373,55 @@ void datacount() {
         debouncetime = millis();
     }
 }
+
+void messung() // Sensor abfragen
+{
+  // Serielle Schnittstelle für US-100 öffnen
+  Serial1.begin(9600);
+  delay(100);
+  int DataToAvg = 9;
+  for (int avgloop = 1; avgloop < (DataToAvg + 1); avgloop++)
+  {
+    while(Serial1.available()){Serial1.read();}              // Clear the serial1 buffer.
+    // Serial.println("write 0x55");
+    Serial1.write(0x55);          // Send a "distance measure" command to US-100
+    delay(200);                   // US100 response time depends on distance.
+    // Serial.print("available..");
+    if (Serial1.available() >= 2) // at least 2 bytes are in buffer
+    {
+      // Serial.println("yes");
+      HByte = Serial1.read(); // Read both bytes
+      LByte = Serial1.read();
+      Distance = (HByte * 256 + LByte);
+      delay(200);
+    }
+    // Serial.println(".");
+    Serial.println("Read" + String(Distance));
+    US100distance.add(Distance);
+  }
+
+  Average = US100distance.getAverage(27);
+
+  level = (DISTANCE_RANGE_BEGIN - Average);
+
+  // Read temperature from the US-100 ultrasonic rangefinder's temp sensor at the top of the tank. The tank air heats up in the sun.
+  while(Serial1.available()){Serial1.read();} 
+  Serial1.write(0x50); // send command to request temperature byte.
+  delay(50);           // temp response takes about 2ms after command ends.
+  if (Serial1.available() >= 1)
+  {
+    US100temp = Serial1.read();
+    if ((US100temp > 1) && (US100temp < 130))
+    {
+      US100temp -= 45; // Correct by the 45 degree offset of the US100.
+    }
+  }
+  Serial1.end();
+  temp = US100temp;
+  letzteMessungMillis = jetztMillis;
+}
+
+
 
 void setup() {
     // //Erase EEPROM once, after that delete that loop
