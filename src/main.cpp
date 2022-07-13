@@ -105,6 +105,10 @@ volatile unsigned int datacounter = 0;
 /******************************************************************************
  * Begin US-100 Setup
  *****************************************************************************/
+HardwareSerial US100Serial(1);
+#define RXD2 16
+#define TXD2 17
+
 #define DISTANCE_RANGE_BEGIN  1340 // Maximale Distanz in mm (Sensor > Tankboden)
 #define LITER_PER_MM  3.68
 
@@ -385,21 +389,21 @@ void datacount() {
 void messung() // Sensor abfragen
 {
   // Serielle Schnittstelle für US-100 öffnen
-  Serial2.begin(9600);
+  US100Serial.begin(9600, SERIAL_8N1, RXD2, TXD2);
   delay(100);
   int DataToAvg = 9;
   for (int avgloop = 1; avgloop < (DataToAvg + 1); avgloop++)
   {
-    while(Serial2.available()){Serial2.read();}              // Clear the Serial2 buffer.
+    while(US100Serial.available()){US100Serial.read();}              // Clear the US100Serial buffer.
     // Serial.println("write 0x55");
-    Serial2.write(0x55);          // Send a "distance measure" command to US-100
+    US100Serial.write(0x55);          // Send a "distance measure" command to US-100
     delay(200);                   // US100 response time depends on distance.
     // Serial.print("available..");
-    if (Serial2.available() >= 2) // at least 2 bytes are in buffer
+    if (US100Serial.available() >= 2) // at least 2 bytes are in buffer
     {
       // Serial.println("yes");
-      HByte = Serial2.read(); // Read both bytes
-      LByte = Serial2.read();
+      HByte = US100Serial.read(); // Read both bytes
+      LByte = US100Serial.read();
       Distance = (HByte * 256 + LByte);
       delay(200);
     }
@@ -413,18 +417,18 @@ void messung() // Sensor abfragen
   level = (DISTANCE_RANGE_BEGIN - Average);
 
   // Read temperature from the US-100 ultrasonic rangefinder's temp sensor at the top of the tank. The tank air heats up in the sun.
-  while(Serial2.available()){Serial2.read();} 
-  Serial2.write(0x50); // send command to request temperature byte.
+  while(US100Serial.available()){US100Serial.read();} 
+  US100Serial.write(0x50); // send command to request temperature byte.
   delay(50);           // temp response takes about 2ms after command ends.
-  if (Serial2.available() >= 1)
+  if (US100Serial.available() >= 1)
   {
-    US100temp = Serial2.read();
+    US100temp = US100Serial.read();
     if ((US100temp > 1) && (US100temp < 130))
     {
       US100temp -= 45; // Correct by the 45 degree offset of the US100.
     }
   }
-  Serial2.end();
+  US100Serial.end();
   temp = US100temp;
 }
 
