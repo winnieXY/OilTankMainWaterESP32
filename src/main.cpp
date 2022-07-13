@@ -105,20 +105,18 @@ volatile unsigned int datacounter = 0;
 /******************************************************************************
  * Begin US-100 Setup
  *****************************************************************************/
-unsigned long deltaMessungSekunden = 1200; //Zeitintervall (Sekunden) nach dem eine Messung erfolgt
-unsigned long deltaMeldungSekunden = 600; // Zeitintervall (Sekunden) nach dem eine LoraWAN-Meldung erfolgt (0 bedeutet nie)
+#define DISTANCE_RANGE_BEGIN  1340 // Maximale Distanz in mm (Sensor > Tankboden)
+#define LITER_PER_MM  3.68
 
-const int DISTANCE_RANGE_BEGIN = 1340; // Maximale Distanz in mm (Sensor > Tankboden)
-const double LITER_PER_MM = 3.68;
+#define OIL_DELTA_TRANSMIT_TIME 3600 * 1000 //time in milliseconds between two transmits
+#define OIL_DELTA_MEASURE_TIME  600 * 1000 //time in milliseconds between two measurements
+unsigned long oil_last_transmit_time = 0;
+unsigned long oil_last_measure_time = 0;
 
 // US-100 ultrasonic rangefinder:
 unsigned int HByte = 0, LByte = 0;
 int level = 0, lastLevel = 0, temp = 0, lastTemp = 0, junk, US100temp = 0, Average = 0, Distance = 0;
 RunningMedian US100distance = RunningMedian(27);
-
-unsigned long jetztMillis = 0;
-unsigned long deltaMessungMillis = deltaMessungSekunden * 1000, letzteMessungMillis = 0;
-unsigned long deltaMeldungMillis = deltaMeldungSekunden * 1000, letzteMeldungMillis = 0;
 
 /******************************************************************************
  * End US-100 Setup
@@ -197,7 +195,8 @@ void do_send(osjob_t* j){
             LMIC_requestNetworkTime(user_request_network_time_callback, &userUTCTime);
             timeupdate = millis();
         }
-        
+        //Set flag that a  transmit is ongoing
+        flag_TXCOMPLETE = false;
         // Prepare upstream data transmission at the next possible time.
         LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
         lpp.reset();
@@ -263,9 +262,11 @@ void onEvent (ev_t ev) {
             break;
         case EV_JOINING:
             dprintln(F("EV_JOINING"));
+            flag_TXCOMPLETE = true;
             break;
         case EV_JOINED:
             dprintln(F("EV_JOINED"));
+            flag_TXCOMPLETE = true;
             {
               u4_t netid = 0;
               devaddr_t devaddr = 0;
@@ -294,12 +295,15 @@ void onEvent (ev_t ev) {
             break;
         case EV_JOIN_FAILED:
             dprintln(F("EV_JOIN_FAILED"));
+            flag_TXCOMPLETE = true;
             break;
         case EV_REJOIN_FAILED:
             dprintln(F("EV_REJOIN_FAILED"));
+            flag_TXCOMPLETE = true;
             break;
         case EV_TXCOMPLETE:
             dprintln(F("EV_TXCOMPLETE (includes waiting for RX windows)"));
+            flag_TXCOMPLETE = true;
             if (LMIC.txrxFlags & TXRX_ACK)
               dprintln(F("Received ack"));
             if (LMIC.dataLen) {
@@ -329,9 +333,11 @@ void onEvent (ev_t ev) {
             break;
         case EV_LOST_TSYNC:
             dprintln(F("EV_LOST_TSYNC"));
+            flag_TXCOMPLETE = true;
             break;
         case EV_RESET:
             dprintln(F("EV_RESET"));
+            flag_TXCOMPLETE = true;
             break;
         case EV_RXCOMPLETE:
             // data received in ping slot
@@ -348,12 +354,14 @@ void onEvent (ev_t ev) {
             break;
         case EV_TXCANCELED:
             dprintln(F("EV_TXCANCELED"));
+            flag_TXCOMPLETE = true;
             break;
         case EV_RXSTART:
             /* do not print anything -- it wrecks timing */
             break;
         case EV_JOIN_TXCOMPLETE:
             dprintln(F("EV_JOIN_TXCOMPLETE: no JoinAccept"));
+            flag_TXCOMPLETE = true;
             break;
 
         default:
@@ -396,7 +404,7 @@ void messung() // Sensor abfragen
       delay(200);
     }
     // Serial.println(".");
-    Serial.println("Read" + String(Distance));
+    dprintln("Read" + String(Distance));
     US100distance.add(Distance);
   }
 
@@ -418,7 +426,6 @@ void messung() // Sensor abfragen
   }
   Serial1.end();
   temp = US100temp;
-  letzteMessungMillis = jetztMillis;
 }
 
 
@@ -479,13 +486,18 @@ void setup() {
     lpp.reset();
     
     // Start LoRa job (sending automatically starts OTAA too)
-    flag_TXCOMPLETE = false;
+    
     do_send(&sendjob);
     dprintln("Finished initialisation!");
 }
 
 void loop() {
     unsigned long now = millis();
+    //Do nothing which could ruin the lora transmission - Just wait till the flag is set to true again.
+    if (flag_TXCOMPLETE && (oil_last_measure_time == 0 || now - oil_last_measure_time >= OIL_DELTA_MEASURE_TIME)) {
+        messung();
+        oil_last_measure_time = millis();
+    }
     if (data_fetch_time == 0 || now - data_fetch_time >= DATA_SUMMATION_PERIOD) {
         dprintln("Get Data and transport it!");
 
@@ -499,6 +511,14 @@ void loop() {
 
         lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
         lpp.addAnalogOutput(array_counter, datatmp);
+
+        //Transmit the oil values just every hour - we do not need these values more often
+        if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME) {
+            lpp.addTemperature(DATA_ARRAY_SIZE + 1,temp);
+            lpp.addAltitude(DATA_ARRAY_SIZE + 2, level);
+            lpp.addAnalogInput(DATA_ARRAY_SIZE + 3, (level * LITER_PER_MM));
+            oil_last_transmit_time = millis();
+        }
 
         //Transmit the value only if the sum is != 0 and the arraycounter is bigger than it should be (this is depended of the Lora DataRate)
         //OR transmit if the array_counter is bigger than it's max allowed size (defaults currently to 5)
