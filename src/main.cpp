@@ -385,21 +385,21 @@ void datacount() {
 void messung() // Sensor abfragen
 {
   // Serielle Schnittstelle für US-100 öffnen
-  Serial1.begin(9600);
+  Serial2.begin(9600);
   delay(100);
   int DataToAvg = 9;
   for (int avgloop = 1; avgloop < (DataToAvg + 1); avgloop++)
   {
-    while(Serial1.available()){Serial1.read();}              // Clear the serial1 buffer.
+    while(Serial2.available()){Serial2.read();}              // Clear the Serial2 buffer.
     // Serial.println("write 0x55");
-    Serial1.write(0x55);          // Send a "distance measure" command to US-100
+    Serial2.write(0x55);          // Send a "distance measure" command to US-100
     delay(200);                   // US100 response time depends on distance.
     // Serial.print("available..");
-    if (Serial1.available() >= 2) // at least 2 bytes are in buffer
+    if (Serial2.available() >= 2) // at least 2 bytes are in buffer
     {
       // Serial.println("yes");
-      HByte = Serial1.read(); // Read both bytes
-      LByte = Serial1.read();
+      HByte = Serial2.read(); // Read both bytes
+      LByte = Serial2.read();
       Distance = (HByte * 256 + LByte);
       delay(200);
     }
@@ -413,22 +413,20 @@ void messung() // Sensor abfragen
   level = (DISTANCE_RANGE_BEGIN - Average);
 
   // Read temperature from the US-100 ultrasonic rangefinder's temp sensor at the top of the tank. The tank air heats up in the sun.
-  while(Serial1.available()){Serial1.read();} 
-  Serial1.write(0x50); // send command to request temperature byte.
+  while(Serial2.available()){Serial2.read();} 
+  Serial2.write(0x50); // send command to request temperature byte.
   delay(50);           // temp response takes about 2ms after command ends.
-  if (Serial1.available() >= 1)
+  if (Serial2.available() >= 1)
   {
-    US100temp = Serial1.read();
+    US100temp = Serial2.read();
     if ((US100temp > 1) && (US100temp < 130))
     {
       US100temp -= 45; // Correct by the 45 degree offset of the US100.
     }
   }
-  Serial1.end();
+  Serial2.end();
   temp = US100temp;
 }
-
-
 
 void setup() {
     // //Erase EEPROM once, after that delete that loop
