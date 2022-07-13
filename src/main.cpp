@@ -9,6 +9,7 @@
 #include <EEPROM.h>
 #include <TimeLib.h>
 #include <RunningMedian.h>
+#include <HardwareSerial.h>
 
 #define DEBUG
 
@@ -391,24 +392,24 @@ void messung() // Sensor abfragen
   // Serielle Schnittstelle für US-100 öffnen
   US100Serial.begin(9600, SERIAL_8N1, RXD2, TXD2);
   delay(100);
-  int DataToAvg = 9;
+  int DataToAvg = 15;
   for (int avgloop = 1; avgloop < (DataToAvg + 1); avgloop++)
   {
     while(US100Serial.available()){US100Serial.read();}              // Clear the US100Serial buffer.
-    // Serial.println("write 0x55");
+    dprintln("write 0x55");
     US100Serial.write(0x55);          // Send a "distance measure" command to US-100
     delay(200);                   // US100 response time depends on distance.
-    // Serial.print("available..");
+    dprint("available..");
     if (US100Serial.available() >= 2) // at least 2 bytes are in buffer
     {
-      // Serial.println("yes");
+      dprintln("yes");
       HByte = US100Serial.read(); // Read both bytes
       LByte = US100Serial.read();
       Distance = (HByte * 256 + LByte);
       delay(200);
     }
     // Serial.println(".");
-    dprintln("Read" + String(Distance));
+    dprintln("Read " + String(Distance)+ "mm");
     US100distance.add(Distance);
   }
 
@@ -430,6 +431,7 @@ void messung() // Sensor abfragen
   }
   US100Serial.end();
   temp = US100temp;
+  dprintln("Temp is " + String(temp) + "°C");
 }
 
 void setup() {
