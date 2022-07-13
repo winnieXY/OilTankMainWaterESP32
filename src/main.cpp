@@ -105,7 +105,7 @@ volatile unsigned int datacounter = 0;
 /******************************************************************************
  * Begin US-100 Setup
  *****************************************************************************/
-HardwareSerial US100Serial(1);
+HardwareSerial US100Serial(2);
 #define RXD2 16
 #define TXD2 17
 
