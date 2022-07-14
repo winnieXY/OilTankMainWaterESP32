@@ -10,6 +10,7 @@
 #include <TimeLib.h>
 #include <RunningMedian.h>
 #include <HardwareSerial.h>
+#include <DFRobot_QMC5883.h>
 
 #define DEBUG
 
@@ -128,6 +129,25 @@ RunningMedian US100distance = RunningMedian(27);
  *****************************************************************************/
 
 
+/******************************************************************************
+ * Begin Magnetometer Setup
+ *****************************************************************************/
+DFRobot_QMC5883 compass(&Wire, /*I2C addr*/QMC5883_ADDRESS);
+float declinationAngle = (4.0 + (26.0 / 60.0)) / (180 / PI);
+
+#define WATER_DETLA_MEASURE_TIME 10 //Measure field every 10ms
+unsigned long water_last_measure_time = 0;
+
+int watercount = 0;
+
+// definitions for low pass filter
+float filterAlpha = 0.1f;
+float filterOut = 0;
+boolean filterLoad = true;
+
+/******************************************************************************
+ * End Magnetometer Setup
+ *****************************************************************************/
 
 /******************************************************************************
  * Lorawan Functions
@@ -434,6 +454,45 @@ void messung() // Sensor abfragen
   dprintln("Temp is " + String(temp) + "°C");
 }
 
+/* 
+ * Low pass filter to eleminate spikes
+ */
+float lowpass(int value) {
+  if (filterLoad) {
+    filterOut = value;
+    filterLoad = false;
+  }
+  filterOut = filterAlpha * value + (1.f - filterAlpha) * filterOut;
+  return filterOut;
+}
+
+void detectTrigger(float val) {
+  boolean nextState = triggerState;
+  if (val > triggerLevelHigh) {
+    nextState = true;
+  } else if (val < triggerLevelLow) {
+    nextState = false;
+  }
+  if (nextState != triggerState) {
+    triggerState = nextState;
+    if (triggerState) {
+      mqttclient.publish(mqtt_triggerchan, "1");
+    } else {
+      mqttclient.publish(mqtt_triggerchan, "0");
+    }
+    // control internal LED
+    digitalWrite(ledOutPin, triggerState);
+  }
+}
+
+
+int magnetometer_measurement() {
+    compass.setDeclinationAngle(declinationAngle);
+    sVector_t mag = compass.readRaw();
+    int value = lowpass(abs(mag.XAxis)+abs(mag.YAxis)+abs(mag.ZAxis));
+    compass.getHeadingDegrees();
+}
+
 void setup() {
     // //Erase EEPROM once, after that delete that loop
     // for(int i = 0; i < 512; i++){
@@ -474,6 +533,36 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
 
     /****************************************************************************
+     * Initialize Magnetometer
+     ****************************************************************************/
+    int i = 0;
+    while (!compass.begin() && i < 20) 
+    {
+        dprintln("Could not find a valid 5883 sensor, check wiring!");
+        delay(500);
+        i++;
+    }
+    if(compass.isQMC())
+    {
+        dprintln("Initialize QMC5883");
+        compass.setRange(QMC5883_RANGE_2GA);
+        dprint("compass range is:");
+        dprintln(compass.getRange());
+
+        compass.setMeasurementMode(QMC5883_CONTINOUS);
+        dprint("compass measurement mode is:");
+        dprintln(compass.getMeasurementMode());
+
+        compass.setDataRate(QMC5883_DATARATE_50HZ);
+        dprint("compass data rate is:");
+        dprintln(compass.getDataRate());
+
+        compass.setSamples(QMC5883_SAMPLES_8);
+        dprint("compass samples is:");
+        dprintln(compass.getSamples());
+    }
+
+    /****************************************************************************
      * Initialize RFM95 LoRa Chip
      ****************************************************************************/
     SPI.begin(14,12,13,15);
@@ -502,6 +591,13 @@ void loop() {
         messung();
         oil_last_measure_time = millis();
     }
+    /**************************************************************************
+     * Measure the magnetic field if no transmission is pending to not ruin the transmission
+     *************************************************************************/
+    if (flag_TXCOMPLETE && water_last_measure_time == 0 || now - water_last_measure_time >= WATER_DETLA_MEASURE_TIME) {
+        watercount += magnetometer_measurement();
+    }
+    
     if (data_fetch_time == 0 || now - data_fetch_time >= DATA_SUMMATION_PERIOD) {
         dprintln("Get Data and transport it!");
 
