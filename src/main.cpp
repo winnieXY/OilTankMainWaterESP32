@@ -507,7 +507,7 @@ void setup() {
     dprintln("Starting communication");
 
     //Start up the EEPROM
-    EEPROM.begin(3);
+    EEPROM.begin(5);
 
     /**************************************************************************
      * Read in EEPROM with values from last run:
