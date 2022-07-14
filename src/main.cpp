@@ -363,6 +363,9 @@ void setup() {
     #endif
     dprintln("Starting communication");
 
+    //Start up the EEPROM
+    EEPROM.begin(3);
+
     /**************************************************************************
      * Read in EEPROM with values from last run:
      *************************************************************************/
