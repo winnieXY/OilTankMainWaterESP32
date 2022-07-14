@@ -145,6 +145,11 @@ float filterAlpha = 0.1f;
 float filterOut = 0;
 boolean filterLoad = true;
 
+// trigger state and level
+float triggerLevelLow;
+float triggerLevelHigh;
+boolean triggerState = false;
+
 /******************************************************************************
  * End Magnetometer Setup
  *****************************************************************************/
@@ -466,31 +471,37 @@ float lowpass(int value) {
   return filterOut;
 }
 
-void detectTrigger(float val) {
-  boolean nextState = triggerState;
-  if (val > triggerLevelHigh) {
-    nextState = true;
-  } else if (val < triggerLevelLow) {
-    nextState = false;
-  }
-  if (nextState != triggerState) {
-    triggerState = nextState;
-    if (triggerState) {
-      mqttclient.publish(mqtt_triggerchan, "1");
-    } else {
-      mqttclient.publish(mqtt_triggerchan, "0");
+//If the value is higher than triggerLevelHigh and the previous state was low the return value is "1"
+//if the value is lower than triggerLevelLow and the previous state was high the return value is "0"
+//otherwise the return value is "-1"
+int detectTrigger(float val) {
+    int tmp = -1;
+    boolean nextState = triggerState;
+    if (val > triggerLevelHigh) {
+        nextState = true;
+    } else if (val < triggerLevelLow) {
+        nextState = false;
     }
-    // control internal LED
-    digitalWrite(ledOutPin, triggerState);
-  }
+    if (nextState != triggerState) {
+        triggerState = nextState;
+        tmp = triggerState;
+    }
+    return tmp;
 }
 
 
+//Perform a measurement and detect a trigger. "-1" if no trigger is detected, otherwise 0 or 1.
 int magnetometer_measurement() {
     compass.setDeclinationAngle(declinationAngle);
     sVector_t mag = compass.readRaw();
     int value = lowpass(abs(mag.XAxis)+abs(mag.YAxis)+abs(mag.ZAxis));
-    compass.getHeadingDegrees();
+
+    int tmp = detectTrigger(value);
+    if (tmp == 1) {
+        return tmp;
+    }
+    return 0;
+    // compass.getHeadingDegrees();
 }
 
 void setup() {
@@ -610,10 +621,12 @@ void loop() {
             datatmp = datacounter;
             datacounter = 0;
         }
-        data_count_sum += datatmp;
+
+        //Use the watercount instead of the interrupt
+        data_count_sum += watercount;
 
         lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
-        lpp.addAnalogOutput(array_counter, datatmp);
+        lpp.addAnalogOutput(array_counter, watercount);
 
         //Transmit the oil values just every hour - we do not need these values more often
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME) {
@@ -638,6 +651,7 @@ void loop() {
             array_counter = 1;
             //Reset Data Count Summation
             data_count_sum = 0;
+            watercount = 0;
         }
         else {
             //Increase counter if not sending data to gateway
