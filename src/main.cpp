@@ -262,19 +262,6 @@ void printHex2(unsigned v)
     Serial.print(v, HEX);
 }
 
-short EEPROM_get(int pos, int defaultVal)
-{
-    int tmp = EEPROM.read(pos);
-    if (tmp == 255)
-        return defaultVal;
-    return tmp;
-}
-
-void EEPROM_put(int pos, int value)
-{
-    EEPROM.write(pos, value);
-}
-
 // Only partially used - the DATA_ARRAY_SIZE is calculated based on the datarate used for transmission.
 // the exceed alarm is just needed with a bad data rate - otherwise it is ignored as we transmit frequently
 // enough.
@@ -292,6 +279,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 1, data_period_exceed_alarm.byte[1]);
         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 2, data_period_exceed_alarm.byte[2]);
         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 3, data_period_exceed_alarm.byte[3]);
+        EEPROM.commit();
     }
 }
 
@@ -534,6 +522,7 @@ int detectTrigger(float val)
 //Detect local maxima and local minima in a floating manner
 void automodifyTriggers(float val)
 {
+    bool changed = false;
     if (val < lastValLow || lastValLow == NAN)
     {
         lastValLow = val;
@@ -568,25 +557,28 @@ void automodifyTriggers(float val)
         {
             triggerLevelLow.value = triggerLevelLowNew;
             lpp.addAltitude(DATA_ARRAY_SIZE + 4, triggerLevelLow.value);
-            //TODO: Write lowlevel to EEPROM
+
             EEPROM.write(6,triggerLevelLow.byte[0]);
             EEPROM.write(7,triggerLevelLow.byte[1]);
             EEPROM.write(8,triggerLevelLow.byte[2]);
             EEPROM.write(9,triggerLevelLow.byte[3]);
-            // triggerLevelLowAddr.write(triggerLevelLow);
+            changed = true;
 
         }
-
         if (abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1)
         {
             triggerLevelHigh.value = triggerLevelHighNew;
             lpp.addAltitude(DATA_ARRAY_SIZE + 5, triggerLevelHigh.value);
+            
             EEPROM.write(10, triggerLevelHigh.byte[0]);
             EEPROM.write(11, triggerLevelHigh.byte[1]);
             EEPROM.write(12, triggerLevelHigh.byte[2]);
             EEPROM.write(13, triggerLevelHigh.byte[3]);
-            //TODO: Write highlevel to EEPROM
-            // triggerLevelHighAddr.write(triggerLevelHigh);
+            changed = true;
+        }
+        if (changed) 
+        {
+            EEPROM.commit();
         }
     }
 }
