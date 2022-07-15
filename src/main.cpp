@@ -24,6 +24,12 @@
 #define dwrite(x)
 #endif
 
+//Typedefs
+typedef union {
+    unsigned int value;
+    unsigned char byte[4];
+} uint2byte;
+
 /*****************************************************************************
  * LoRaWAN Settings
  ****************************************************************************/
@@ -88,12 +94,10 @@ unsigned int data_summation_period = 0;
 unsigned int data_array_size = 0;
 
 #define DATA_PERIOD_EXCEED_ALARM 20              // Default value - ransfer data immediately if the data count per period exceeds this value
-#define DATA_PERIOD_EXCEED_ALARM_MULTIPLICATOR 1 // EEPROM Address "2" & "3"
-                                                 // Value in Address "2" is multiplied with Value in Address "3"
-                                                 // e.g. "20" x "1" => 20
-                                                 // or   "20" x "10" => 200
-unsigned int data_period_exceed_alarm = 0;
-unsigned int data_period_exceed_alarm_multiplicator = 0;
+
+
+
+uint2byte data_period_exceed_alarm;
 
 // Debouncing the interrupt.
 #define DEBOUNCE_TIME 250 // defaulting to 250ms debounce time
@@ -143,8 +147,9 @@ float filterOut = 0;
 boolean filterLoad = true;
 
 // trigger state and level
-float triggerLevelLow;
-float triggerLevelHigh;
+uint2byte triggerLevelLow;
+uint2byte triggerLevelHigh;
+
 boolean triggerState = false;
 
 #define AUTO_TRIGGER_COUNT 100
@@ -156,6 +161,12 @@ double lastValHigh = NAN;
 /******************************************************************************
  * End Magnetometer Setup
  *****************************************************************************/
+
+#define EEPROM_BEGIN_DATA_EXCEED_DELTA 0
+#define EEPROM_BEGIN_TRIGGERLOW 4
+#define EEPROM_BEGIN_TRIGGERHIGH 8
+
+
 
 /******************************************************************************
  * Lorawan Functions
@@ -275,17 +286,12 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
     {
         dprintln(frame[databeg]);
         dprintln(frame[databeg + 1]);
-        unsigned int tmp = (frame[databeg] << 8) + frame[databeg + 1];
-        dprintln(tmp);
-        data_period_exceed_alarm_multiplicator = 1;
-        while (tmp > 254)
-        {
-            data_period_exceed_alarm_multiplicator *= 10;
-            tmp = tmp / data_period_exceed_alarm_multiplicator;
-        }
-        data_period_exceed_alarm = tmp * data_period_exceed_alarm_multiplicator;
-        EEPROM_put(2, tmp);
-        EEPROM_put(3, data_period_exceed_alarm_multiplicator);
+        data_period_exceed_alarm.value  = (frame[databeg] << 8) + frame[databeg + 1];
+
+        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA, data_period_exceed_alarm.byte[0]);
+        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 1, data_period_exceed_alarm.byte[1]);
+        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 2, data_period_exceed_alarm.byte[2]);
+        EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 3, data_period_exceed_alarm.byte[3]);
     }
 }
 
@@ -509,11 +515,11 @@ int detectTrigger(float val)
 {
     int tmp = -1;
     boolean nextState = triggerState;
-    if (val > triggerLevelHigh)
+    if (val > triggerLevelHigh.value)
     {
         nextState = true;
     }
-    else if (val < triggerLevelLow)
+    else if (val < triggerLevelLow.value)
     {
         nextState = false;
     }
@@ -558,20 +564,29 @@ void automodifyTriggers(float val)
         float triggerLevelLowNew = lowerAverage + divlowHigh * 0.3;
 
         char str[100];
-        if (abs(triggerLevelLowNew - triggerLevelLow) / triggerLevelLowNew > 0.1)
+        if (abs(triggerLevelLowNew - triggerLevelLow.value) / triggerLevelLowNew > 0.1)
         {
-            triggerLevelLow = triggerLevelLowNew;
-            triggerLevelLowAddr.write(triggerLevelLow);
-            itoa((int)triggerLevelLow, str, 10);
-            mqttclient.publish(mqtt_lowrangechanack, str);
+            triggerLevelLow.value = triggerLevelLowNew;
+            lpp.addAltitude(DATA_ARRAY_SIZE + 4, triggerLevelLow.value);
+            //TODO: Write lowlevel to EEPROM
+            EEPROM.write(6,triggerLevelLow.byte[0]);
+            EEPROM.write(7,triggerLevelLow.byte[1]);
+            EEPROM.write(8,triggerLevelLow.byte[2]);
+            EEPROM.write(9,triggerLevelLow.byte[3]);
+            // triggerLevelLowAddr.write(triggerLevelLow);
+
         }
 
-        if (abs(triggerLevelHighNew - triggerLevelHigh) / triggerLevelHighNew > 0.1)
+        if (abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1)
         {
-            triggerLevelHigh = triggerLevelHighNew;
-            triggerLevelHighAddr.write(triggerLevelHigh);
-            itoa((int)triggerLevelHigh, str, 10);
-            mqttclient.publish(mqtt_uprangechanack, str);
+            triggerLevelHigh.value = triggerLevelHighNew;
+            lpp.addAltitude(DATA_ARRAY_SIZE + 5, triggerLevelHigh.value);
+            EEPROM.write(10, triggerLevelHigh.byte[0]);
+            EEPROM.write(11, triggerLevelHigh.byte[1]);
+            EEPROM.write(12, triggerLevelHigh.byte[2]);
+            EEPROM.write(13, triggerLevelHigh.byte[3]);
+            //TODO: Write highlevel to EEPROM
+            // triggerLevelHighAddr.write(triggerLevelHigh);
         }
     }
 }
@@ -614,9 +629,22 @@ void setup()
      * Read in EEPROM with values from last run:
      *************************************************************************/
 
-    data_period_exceed_alarm = EEPROM_get(2, DATA_PERIOD_EXCEED_ALARM);
-    data_period_exceed_alarm_multiplicator = EEPROM_get(3, DATA_PERIOD_EXCEED_ALARM_MULTIPLICATOR);
-    data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
+    data_period_exceed_alarm.byte[0] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA);
+    data_period_exceed_alarm.byte[1] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA + 1);
+    data_period_exceed_alarm.byte[2] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA + 2);
+    data_period_exceed_alarm.byte[3] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA + 3);
+
+    //Read in the trigger levels for the magnetometer
+    triggerLevelLow.byte[0] = EEPROM.read(EEPROM_BEGIN_TRIGGERLOW);
+    triggerLevelLow.byte[1] = EEPROM.read(EEPROM_BEGIN_TRIGGERLOW + 1);
+    triggerLevelLow.byte[2] = EEPROM.read(EEPROM_BEGIN_TRIGGERLOW + 2);
+    triggerLevelLow.byte[3] = EEPROM.read(EEPROM_BEGIN_TRIGGERLOW + 3);
+
+    triggerLevelHigh.byte[0] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH);
+    triggerLevelHigh.byte[1] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH + 1);
+    triggerLevelHigh.byte[2] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH + 2);
+    triggerLevelHigh.byte[3] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH + 3);
+
 
     // Power savings: see https://www.mischianti.org/2021/03/06/esp32-practical-power-saving-manage-wifi-and-cpu-1/
     // and https://github.com/espressif/arduino-esp32/issues/1077
