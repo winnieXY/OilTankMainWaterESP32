@@ -197,6 +197,7 @@ short EEPROM_get(int pos, int defaultVal) {
 
 void EEPROM_put(int pos, int value) {
     EEPROM.write(pos, value);
+    EEPROM.commit();
 }
 
 // Only partially used - the DATA_ARRAY_SIZE is calculated based on the datarate used for transmission.
