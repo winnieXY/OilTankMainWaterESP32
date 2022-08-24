@@ -10,7 +10,6 @@
 #include <TimeLib.h>
 #include <RunningMedian.h>
 #include <HardwareSerial.h>
-#include <DFRobot_QMC5883.h>
 
 #define DEBUG
 
@@ -131,13 +130,18 @@ RunningMedian US100distance = RunningMedian(27);
  *****************************************************************************/
 
 /******************************************************************************
- * Begin Magnetometer Setup
+ * Begin IR Reader Probe Setup
  *****************************************************************************/
-DFRobot_QMC5883 compass(&Wire, /*I2C addr*/ HMC5883L_ADDRESS);
-float declinationAngle = (4.0 + (26.0 / 60.0)) / (180 / PI);
 
-#define WATER_DETLA_MEASURE_TIME 10 // Measure field every 10ms
+#define WATER_DELTA_MEASURE_TIME 10 // Measure field every 10ms
 unsigned long water_last_measure_time = 0;
+const int analogInPin = A7;  // Analog input pin that the photo transistor is attached to
+const int irOutPin = 2; // Digital output pin that the IR-LED is attached to
+const int ledOutPin = 13; // Signal LED output pin
+
+int sensorValueOff = 0;  // value read from the photo transistor when ir LED is off
+int sensorValueOn = 0;  // value read from the photo transistor when ir LED is on
+int sensorValue = 0; // difference sensorValueOn - sensorValueOff
 
 int watercount = 0;
 
@@ -584,12 +588,22 @@ void automodifyTriggers(float val)
 }
 
 // Perform a measurement and detect a trigger. "-1" if no trigger is detected, otherwise 0 or 1.
-int magnetometer_measurement()
+int irprobe_measurement()
 {
-    compass.setDeclinationAngle(declinationAngle);
-    sVector_t mag = compass.readRaw();
-    int value = lowpass(abs(mag.XAxis) + abs(mag.YAxis) + abs(mag.ZAxis));
-    dprintln(String(value) + "," + String(mag.XAxis) + "," + String(mag.YAxis) + "," + String(mag.ZAxis));
+    digitalWrite(irOutPin, LOW);
+    // wait 10 milliseconds
+    delay(10);
+    // read the analog in value:
+    sensorValueOff = analogRead(analogInPin);           
+    // turn IR LED on
+    digitalWrite(irOutPin, HIGH);
+    delay(10);
+    // read the analog in value:
+    sensorValueOn = analogRead(analogInPin);
+    sensorValue = sensorValueOn - sensorValueOff;
+
+    float value = lowpass(sensorValue);
+
     int tmp = detectTrigger(value);
     automodifyTriggers(value);
     if (tmp == 1)
@@ -597,7 +611,6 @@ int magnetometer_measurement()
         return tmp;
     }
     return 0;
-    // compass.getHeadingDegrees();
 }
 
 void setup()
@@ -655,35 +668,6 @@ void setup()
     // Attach to interrupt
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
 
-    /****************************************************************************
-     * Initialize Magnetometer
-     ****************************************************************************/
-    int i = 0;
-    while (!compass.begin() && i < 20)
-    {
-        dprintln("Could not find a valid 5883 sensor, check wiring!");
-        delay(500);
-        i++;
-    }
-    if (compass.isQMC())
-    {
-        dprintln("Initialize QMC5883");
-        compass.setRange(QMC5883_RANGE_2GA);
-        dprint("compass range is:");
-        dprintln(compass.getRange());
-
-        compass.setMeasurementMode(QMC5883_CONTINOUS);
-        dprint("compass measurement mode is:");
-        dprintln(compass.getMeasurementMode());
-
-        compass.setDataRate(QMC5883_DATARATE_50HZ);
-        dprint("compass data rate is:");
-        dprintln(compass.getDataRate());
-
-        compass.setSamples(QMC5883_SAMPLES_8);
-        dprint("compass samples is:");
-        dprintln(compass.getSamples());
-    }
 
     /****************************************************************************
      * Initialize RFM95 LoRa Chip
@@ -719,9 +703,9 @@ void loop()
     /**************************************************************************
      * Measure the magnetic field if no transmission is pending to not ruin the transmission
      *************************************************************************/
-    if (flag_TXCOMPLETE && water_last_measure_time == 0 || now - water_last_measure_time >= WATER_DETLA_MEASURE_TIME)
+    if (flag_TXCOMPLETE && water_last_measure_time == 0 || now - water_last_measure_time >= WATER_DELTA_MEASURE_TIME)
     {
-        watercount += magnetometer_measurement();
+        watercount += irprobe_measurement();
     }
 
     if (data_fetch_time == 0 || now - data_fetch_time >= DATA_SUMMATION_PERIOD)
