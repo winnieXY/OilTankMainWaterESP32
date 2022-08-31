@@ -10,6 +10,7 @@
 #include <TimeLib.h>
 #include <RunningMedian.h>
 #include <HardwareSerial.h>
+#include <CayenneLPPDecode.h>
 
 #define DEBUG
 
@@ -153,8 +154,10 @@ boolean filterLoad = true;
 // trigger state and level
 uint2byte triggerLevelLow;
 uint2byte triggerLevelHigh;
+boolean autoOptimizeTrigger = true;
 
 boolean triggerState = false;
+
 
 #define AUTO_TRIGGER_COUNT 100
 RunningMedian lowestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
@@ -166,7 +169,7 @@ double lastValHigh = NAN;
  * End Magnetometer Setup
  *****************************************************************************/
 
-#define EEPROM_BEGIN_DATA_EXCEED_DELTA 0
+#define EEPROM_BEGIN_DATA_AUTO_TRIGGER 0
 #define EEPROM_BEGIN_TRIGGERLOW 4
 #define EEPROM_BEGIN_TRIGGERHIGH 8
 
@@ -271,22 +274,9 @@ void printHex2(unsigned v)
 // enough.
 void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
 {
-
-//     dprintln(dataLen);
-//     if (dataLen = 2)
-//     {
-//         dprintln(frame[databeg]);
-//         dprintln(frame[databeg + 1]);
-//         data_period_exceed_alarm.value  = (frame[databeg] << 8) + frame[databeg + 1];
-
-//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA, data_period_exceed_alarm.byte[0]);
-//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 1, data_period_exceed_alarm.byte[1]);
-//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 2, data_period_exceed_alarm.byte[2]);
-//         EEPROM.write(EEPROM_BEGIN_DATA_EXCEED_DELTA + 3, data_period_exceed_alarm.byte[3]);
-//         EEPROM.commit();
-// void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen) {
     DynamicJsonDocument jsonBuffer(256);
     CayenneLPPDecode lppd;
+    bool modify = false;
 
     JsonObject root = jsonBuffer.to<JsonObject>();
 
@@ -297,20 +287,29 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
         //parse
         lppd.decode(root);
 
-        if (root.containsKey("0")) {
-            data_summation_period = root["0"];
-            EEPROM.put(0, float(data_summation_period));
+        if (root.containsKey("0")) { //Automatic trigger function
+            autoOptimizeTrigger = root["0"];
+            EEPROM.write(EEPROM_BEGIN_DATA_AUTO_TRIGGER, autoOptimizeTrigger);
+            modify = true;
         }
-        if (root.containsKey("1")) {
-            data_array_size = root["1"];
-            EEPROM.put(1, float(data_array_size));
+        if (root.containsKey("1")) { //Low Trigger Value
+            triggerLevelLow.value = root["1"];
+            EEPROM.write(EEPROM_BEGIN_TRIGGERLOW, triggerLevelLow.byte[0]);
+            EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 1, triggerLevelLow.byte[1]);
+            EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 2, triggerLevelLow.byte[2]);
+            EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 3, triggerLevelLow.byte[3]);
+            modify = true;
         }
-        if (root.containsKey("2") && root.containsKey("3")) {
-            data_period_exceed_alarm = root["2"];
-            data_period_exceed_alarm_multiplicator = root["3"];
-            EEPROM.put(2, float(data_period_exceed_alarm));
-            EEPROM.put(3, float(data_period_exceed_alarm_multiplicator));
-            data_period_exceed_alarm *= data_period_exceed_alarm_multiplicator;
+        if (root.containsKey("2")) {
+            triggerLevelHigh.value = root["2"];
+            EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH, triggerLevelHigh.byte[0]);
+            EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 1, triggerLevelHigh.byte[1]);
+            EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 2, triggerLevelHigh.byte[2]);
+            EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 3, triggerLevelHigh.byte[3]);
+            modify = true;
+        }
+        if (modify) {
+            EEPROM.commit();
         }
 
     }
@@ -592,7 +591,7 @@ void automodifyTriggers(float val)
         if (abs(triggerLevelLowNew - triggerLevelLow.value) / triggerLevelLowNew > 0.1)
         {
             triggerLevelLow.value = triggerLevelLowNew;
-            lpp.addAltitude(DATA_ARRAY_SIZE + 4, triggerLevelLow.value);
+            lpp.addAnalogInput(DATA_ARRAY_SIZE + 4, triggerLevelLow.value);
 
             EEPROM.write(6,triggerLevelLow.byte[0]);
             EEPROM.write(7,triggerLevelLow.byte[1]);
@@ -604,7 +603,7 @@ void automodifyTriggers(float val)
         if (abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1)
         {
             triggerLevelHigh.value = triggerLevelHighNew;
-            lpp.addAltitude(DATA_ARRAY_SIZE + 5, triggerLevelHigh.value);
+            lpp.addAnalogInput(DATA_ARRAY_SIZE + 5, triggerLevelHigh.value);
             
             EEPROM.write(10, triggerLevelHigh.byte[0]);
             EEPROM.write(11, triggerLevelHigh.byte[1]);
@@ -642,7 +641,8 @@ int irprobe_measurement()
     dprintln(triggerLevelLow.value);
 
     int tmp = detectTrigger(value);
-    automodifyTriggers(value);
+    if (automodifyTriggers) //Can be set via lora
+        automodifyTriggers(value);
     if (tmp == 1)
     {
         return tmp;
@@ -671,10 +671,7 @@ void setup()
      * Read in EEPROM with values from last run:
      *************************************************************************/
 
-    data_period_exceed_alarm.byte[0] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA);
-    data_period_exceed_alarm.byte[1] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA + 1);
-    data_period_exceed_alarm.byte[2] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA + 2);
-    data_period_exceed_alarm.byte[3] = EEPROM.read(EEPROM_BEGIN_DATA_EXCEED_DELTA + 3);
+    autoOptimizeTrigger = EEPROM.read(EEPROM_BEGIN_DATA_AUTO_TRIGGER);
 
     //Read in the trigger levels for the magnetometer
     triggerLevelLow.byte[0] = EEPROM.read(EEPROM_BEGIN_TRIGGERLOW);
@@ -767,8 +764,8 @@ void loop()
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
         {
             lpp.addTemperature(DATA_ARRAY_SIZE + 1,temp);
-            lpp.addAltitude(DATA_ARRAY_SIZE + 2, level);
-            lpp.addAnalogInput(DATA_ARRAY_SIZE + 3, (level * LITER_PER_MM));
+            lpp.addAnalogOutput(DATA_ARRAY_SIZE + 2, level);
+            lpp.addAnalogOutput(DATA_ARRAY_SIZE + 3, (level * LITER_PER_MM));
             oil_last_transmit_time = millis();
         }
 
