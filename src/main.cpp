@@ -603,6 +603,11 @@ int irprobe_measurement()
     sensorValue = sensorValueOn - sensorValueOff;
 
     float value = lowpass(sensorValue);
+    dprint(value);
+    dprint(",");
+    dprint(triggerLevelHigh.value);
+    dprint(",");
+    dprintln(triggerLevelLow.value);
 
     int tmp = detectTrigger(value);
     automodifyTriggers(value);
@@ -703,7 +708,7 @@ void loop()
     /**************************************************************************
      * Measure the magnetic field if no transmission is pending to not ruin the transmission
      *************************************************************************/
-    if (flag_TXCOMPLETE && water_last_measure_time == 0 || now - water_last_measure_time >= WATER_DELTA_MEASURE_TIME)
+    if (flag_TXCOMPLETE && (water_last_measure_time == 0 || now - water_last_measure_time >= WATER_DELTA_MEASURE_TIME))
     {
         watercount += irprobe_measurement();
     }
@@ -723,15 +728,15 @@ void loop()
         // Use the watercount instead of the interrupt
         data_count_sum += watercount;
 
-        // lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
-        // lpp.addAnalogOutput(array_counter, watercount);
+        lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
+        lpp.addAnalogOutput(array_counter, watercount);
 
         // Transmit the oil values just every hour - we do not need these values more often
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
         {
-            // lpp.addTemperature(DATA_ARRAY_SIZE + 1,temp);
-            // lpp.addAltitude(DATA_ARRAY_SIZE + 2, level);
-            // lpp.addAnalogInput(DATA_ARRAY_SIZE + 3, (level * LITER_PER_MM));
+            lpp.addTemperature(DATA_ARRAY_SIZE + 1,temp);
+            lpp.addAltitude(DATA_ARRAY_SIZE + 2, level);
+            lpp.addAnalogInput(DATA_ARRAY_SIZE + 3, (level * LITER_PER_MM));
             oil_last_transmit_time = millis();
         }
 
@@ -745,7 +750,7 @@ void loop()
         if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > DATA_PERIOD_EXCEED_ALARM)
         {
             dprintln("Send data to gateway");
-            // do_send(&sendjob);
+            do_send(&sendjob);
 
             // Reset Counter
             array_counter = 1;
