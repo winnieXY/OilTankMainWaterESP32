@@ -2,7 +2,7 @@
 #include <lmic.h>
 #include <hal/hal.h>
 #include <SPI.h>
-#include <CayenneLPP.h>
+// #include <CayenneLPP.h>
 #include <Esp32Atomic.h>
 #include <esp_wifi.h>
 #include <driver/adc.h>
@@ -117,7 +117,7 @@ HardwareSerial US100Serial(2);
 #define LITER_PER_MM 3.68
 
 #define OIL_DELTA_TRANSMIT_TIME 3600 * 1000 // time in milliseconds between two transmits
-#define OIL_DELTA_MEASURE_TIME 600 * 1000   // time in milliseconds between two measurements
+#define OIL_DELTA_MEASURE_TIME 600 * 1000  * 6  // time in milliseconds between two measurements - every hour 
 unsigned long oil_last_transmit_time = 0;
 unsigned long oil_last_measure_time = 0;
 
@@ -136,9 +136,9 @@ RunningMedian US100distance = RunningMedian(27);
 
 #define WATER_DELTA_MEASURE_TIME 10 // Measure field every 10ms
 unsigned long water_last_measure_time = 0;
-const int analogInPin = A7;  // Analog input pin that the photo transistor is attached to
-const int irOutPin = 2; // Digital output pin that the IR-LED is attached to
-const int ledOutPin = 13; // Signal LED output pin
+const int analogInPin = 2;  // Analog input pin that the photo transistor is attached to
+const int irOutPin = 22; // Digital output pin that the IR-LED is attached to
+const int sdapin = 21;
 
 int sensorValueOff = 0;  // value read from the photo transistor when ir LED is off
 int sensorValueOn = 0;  // value read from the photo transistor when ir LED is on
@@ -291,6 +291,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             autoOptimizeTrigger = root["0"];
             EEPROM.write(EEPROM_BEGIN_DATA_AUTO_TRIGGER, autoOptimizeTrigger);
             modify = true;
+            dprintln("Got AutoOptimizeTrigger via Downstream.");
         }
         if (root.containsKey("1")) { //Low Trigger Value
             triggerLevelLow.value = root["1"];
@@ -299,6 +300,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 2, triggerLevelLow.byte[2]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 3, triggerLevelLow.byte[3]);
             modify = true;
+            dprintln("Got Low Level Trigger Value via Downstream.");
         }
         if (root.containsKey("2")) {
             triggerLevelHigh.value = root["2"];
@@ -307,6 +309,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 2, triggerLevelHigh.byte[2]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 3, triggerLevelHigh.byte[3]);
             modify = true;
+            dprintln("Got High Level Trigger Value via Downstream.");
         }
         if (modify) {
             EEPROM.commit();
@@ -634,14 +637,16 @@ int irprobe_measurement()
     sensorValue = sensorValueOn - sensorValueOff;
 
     float value = lowpass(sensorValue);
-    dprint(value);
-    dprint(",");
-    dprint(triggerLevelHigh.value);
-    dprint(",");
-    dprintln(triggerLevelLow.value);
+    // dprint(sensorValue);
+    // dprint(",");
+    // dprint(value);
+    // dprint(",");
+    // dprint(triggerLevelHigh.value);
+    // dprint(",");
+    // dprintln(triggerLevelLow.value);
 
     int tmp = detectTrigger(value);
-    if (automodifyTriggers) //Can be set via lora
+    if (autoOptimizeTrigger) //Can be set via lora
         automodifyTriggers(value);
     if (tmp == 1)
     {
@@ -684,6 +689,10 @@ void setup()
     triggerLevelHigh.byte[2] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH + 2);
     triggerLevelHigh.byte[3] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH + 3);
 
+    //Reset values to some sane default values if nothing is stored in eeprom
+    if (triggerLevelLow.value == 0) {triggerLevelLow.value = 100; }
+    if (triggerLevelHigh.value == 0) {triggerLevelHigh.value = 4900; }
+
 
     // Power savings: see https://www.mischianti.org/2021/03/06/esp32-practical-power-saving-manage-wifi-and-cpu-1/
     // and https://github.com/espressif/arduino-esp32/issues/1077
@@ -698,6 +707,8 @@ void setup()
     setCpuFrequencyMhz(80);
 
     pinMode(26, INPUT_PULLUP);
+
+    pinMode(irOutPin, OUTPUT);
 
     // Attach to interrupt
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
@@ -725,7 +736,7 @@ void setup()
     dprintln("Finished initialisation!");
 }
 
-void loop()
+void loop() 
 {
     unsigned long now = millis();
     // Do nothing which could ruin the lora transmission - Just wait till the flag is set to true again.
@@ -759,6 +770,12 @@ void loop()
 
         lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
         lpp.addAnalogOutput(array_counter, watercount);
+
+        //For testing purposes
+        lpp.addAnalogInput(DATA_ARRAY_SIZE + 5, triggerLevelHigh.value);
+        lpp.addAnalogInput(DATA_ARRAY_SIZE + 4, triggerLevelLow.value);
+        lpp.addDigitalInput(DATA_ARRAY_SIZE + 6, autoOptimizeTrigger);
+
 
         // Transmit the oil values just every hour - we do not need these values more often
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
