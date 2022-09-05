@@ -280,21 +280,20 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
 
     JsonObject root = jsonBuffer.to<JsonObject>();
 
-    for (int i=databeg; i<= dataLen; i++) {
-        lppd.write(frame[i]);
-    }
+    lppd.write(frame+databeg, dataLen);
+
     if (lppd.isValid()) {
         //parse
         lppd.decode(root);
-
-        if (root.containsKey("0")) { //Automatic trigger function
-            autoOptimizeTrigger = root["0"];
+        dprintln(root);
+        if (root.containsKey("digital_in_0")) { //Automatic trigger function
+            autoOptimizeTrigger = root["digital_in_0"];
             EEPROM.write(EEPROM_BEGIN_DATA_AUTO_TRIGGER, autoOptimizeTrigger);
             modify = true;
             dprintln("Got AutoOptimizeTrigger via Downstream.");
         }
-        if (root.containsKey("1")) { //Low Trigger Value
-            triggerLevelLow.value = root["1"];
+        if (root.containsKey("luminosity_1")) { //Low Trigger Value
+            triggerLevelLow.value = root["luminosity_1"];
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW, triggerLevelLow.byte[0]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 1, triggerLevelLow.byte[1]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 2, triggerLevelLow.byte[2]);
@@ -302,8 +301,8 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             modify = true;
             dprintln("Got Low Level Trigger Value via Downstream.");
         }
-        if (root.containsKey("2")) {
-            triggerLevelHigh.value = root["2"];
+        if (root.containsKey("luminosity_2")) {
+            triggerLevelHigh.value = root["luminosity_2"];
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH, triggerLevelHigh.byte[0]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 1, triggerLevelHigh.byte[1]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 2, triggerLevelHigh.byte[2]);
@@ -755,7 +754,7 @@ void loop()
 
     if (data_fetch_time == 0 || now - data_fetch_time >= DATA_SUMMATION_PERIOD)
     {
-        dprintln("Get Data and transport it!");
+        dprintln("Get Data!");
 
         // Get data
         int datatmp = 0;
