@@ -775,6 +775,9 @@ void setup()
 
     pinMode(irOutPin, OUTPUT);
 
+    //Leave the sda pin floating - workaround for wrong wiring
+    pinMode(sdapin, INPUT);
+
     // Attach to interrupt
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
 
