@@ -93,11 +93,10 @@ unsigned int data_summation_period = 0;
                           // EEPROM Address "1" -> Data is stored as is
 unsigned int data_array_size = 0;
 
-#define DATA_PERIOD_EXCEED_ALARM 20              // Default value - ransfer data immediately if the data count per period exceeds this value
-
-
+#define DATA_PERIOD_EXCEED_ALARM 20              // Default value - transfer data immediately if the data count per period exceeds this value
 
 uint2byte data_period_exceed_alarm;
+
 
 // Debouncing the interrupt.
 #define DEBOUNCE_TIME 250 // defaulting to 250ms debounce time
@@ -159,7 +158,7 @@ boolean autoOptimizeTrigger = true;
 boolean triggerState = false;
 
 
-#define AUTO_TRIGGER_COUNT 100
+#define AUTO_TRIGGER_COUNT 200
 RunningMedian lowestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
 RunningMedian highestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
 double lastValLow = NAN;
@@ -172,6 +171,7 @@ double lastValHigh = NAN;
 #define EEPROM_BEGIN_DATA_AUTO_TRIGGER 0
 #define EEPROM_BEGIN_TRIGGERLOW 4
 #define EEPROM_BEGIN_TRIGGERHIGH 8
+#define EEPROM_BEGIN_WATER_EXCEED_LIMIT 12
 
 
 
@@ -290,7 +290,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             autoOptimizeTrigger = root["digital_in_0"];
             EEPROM.write(EEPROM_BEGIN_DATA_AUTO_TRIGGER, autoOptimizeTrigger);
             modify = true;
-            dprintln("Got AutoOptimizeTrigger via Downstream.");
+            dprint("Got AutoOptimizeTrigger via Downstream: ["); dprint(autoOptimizeTrigger); dprintln("]");
         }
         if (root.containsKey("luminosity_1")) { //Low Trigger Value
             triggerLevelLow.value = root["luminosity_1"];
@@ -299,7 +299,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 2, triggerLevelLow.byte[2]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 3, triggerLevelLow.byte[3]);
             modify = true;
-            dprintln("Got Low Level Trigger Value via Downstream.");
+            dprintln("Got Low Level Trigger Value via Downstream: ["); dprint(triggerLevelLow.value); dprintln("]");
         }
         if (root.containsKey("luminosity_2")) {
             triggerLevelHigh.value = root["luminosity_2"];
@@ -308,7 +308,16 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 2, triggerLevelHigh.byte[2]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 3, triggerLevelHigh.byte[3]);
             modify = true;
-            dprintln("Got High Level Trigger Value via Downstream.");
+            dprintln("Got High Level Trigger Value via Downstream:"); dprint(triggerLevelHigh.value); dprintln("]");
+        }
+        if (root.containsKey("luminosity_3")) {
+            data_period_exceed_alarm.value = root["luminosity_3"];
+            EEPROM.write(EEPROM_BEGIN_WATER_EXCEED_LIMIT, data_period_exceed_alarm.byte[0]);
+            EEPROM.write(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 1, data_period_exceed_alarm.byte[1]);
+            EEPROM.write(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 2, data_period_exceed_alarm.byte[2]);
+            EEPROM.write(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 3, data_period_exceed_alarm.byte[3]);
+            modify = true;
+            dprintln("Got Exceed Alarm Limit via Downstream:"); dprint(data_period_exceed_alarm.value); dprintln("]");
         }
         if (modify) {
             EEPROM.commit();
@@ -657,9 +666,11 @@ int irprobe_measurement()
 void setup()
 {
 // //Erase EEPROM once, after that delete that loop
+//EEPROM.begin(512);
 // for(int i = 0; i < 512; i++){
 //     EEPROM.write(i,255);
 // }
+//EEPROM.commit();
 // while (true) {}
 
 // put your setup code here, to run once:
@@ -669,7 +680,7 @@ void setup()
     dprintln("Starting communication");
 
     // Start up the EEPROM
-    EEPROM.begin(7);
+    EEPROM.begin(20);
 
     /**************************************************************************
      * Read in EEPROM with values from last run:
@@ -688,9 +699,34 @@ void setup()
     triggerLevelHigh.byte[2] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH + 2);
     triggerLevelHigh.byte[3] = EEPROM.read(EEPROM_BEGIN_TRIGGERHIGH + 3);
 
+    data_period_exceed_alarm.byte[0] = EEPROM.read(EEPROM_BEGIN_WATER_EXCEED_LIMIT);
+    data_period_exceed_alarm.byte[1] = EEPROM.read(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 1);
+    data_period_exceed_alarm.byte[2] = EEPROM.read(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 2);
+    data_period_exceed_alarm.byte[3] = EEPROM.read(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 3);
+    
     //Reset values to some sane default values if nothing is stored in eeprom
-    if (triggerLevelLow.value == 0) {triggerLevelLow.value = 100; }
-    if (triggerLevelHigh.value == 0) {triggerLevelHigh.value = 4900; }
+    if (triggerLevelLow.byte[0] == 0xFF 
+    && triggerLevelLow.byte[1] == 0xFF 
+    && triggerLevelLow.byte[2] == 0xFF 
+    && triggerLevelLow.byte[3] == 0xFF) 
+    {
+        triggerLevelLow.value = 100; 
+    }
+    if (triggerLevelHigh.byte[0] == 0xFF 
+        && triggerLevelHigh.byte[1] == 0xFF 
+        && triggerLevelHigh.byte[2] == 0xFF 
+        && triggerLevelHigh.byte[3] == 0xFF) 
+    {
+        triggerLevelHigh.value = 4900; 
+    }
+    
+    if (data_period_exceed_alarm.byte[0] == 0xFF 
+        && data_period_exceed_alarm.byte[1] == 0xFF 
+        && data_period_exceed_alarm.byte[2] == 0xFF 
+        && data_period_exceed_alarm.byte[3] == 0xFF) 
+    {
+        data_period_exceed_alarm.value = DATA_PERIOD_EXCEED_ALARM; 
+    }
 
 
     // Power savings: see https://www.mischianti.org/2021/03/06/esp32-practical-power-saving-manage-wifi-and-cpu-1/
@@ -792,7 +828,7 @@ void loop()
         // Especially the first check prevents transfers of data without any need as zero measurements will be delayed until the array size is filled up till maximum
         // So if there is no flow at all the data will be transferred only every 5 minutes. With DR5 (SF7) we are allowed to transmit ~18 messages per hour on average
         //(every three minutes) to fullfill the TTN fair usage policy. This change will allow us to do so if there is not that much flow most of the day.
-        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > DATA_PERIOD_EXCEED_ALARM)
+        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
         {
             dprintln("Send data to gateway");
             do_send(&sendjob);
