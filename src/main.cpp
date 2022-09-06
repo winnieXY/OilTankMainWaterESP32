@@ -167,7 +167,10 @@ boolean autoOptimizeTrigger = true;
 boolean triggerState = false;
 
 
-#define AUTO_TRIGGER_COUNT 200
+#define AUTO_TRIGGER_COUNT 200 //Average over 200L
+#define AUTO_TRIGGER_MIN_COUNT 20 //Get a first value after 20 cycles if no trigger is available at all
+#define DEFAULT_LOW_TRIGGER_VAL 0 //ADC Min Range - Default lower trigger value
+#define DEFAULT_HIGH_TRIGGER_VAL 4095 //ADC Max Range - Default high trigger value
 RunningMedian lowestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
 RunningMedian highestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
 double lastValLow = NAN;
@@ -576,7 +579,7 @@ int detectTrigger(float val)
     return tmp;
 }
 
-//Detect local maxima and local minima in a floating manner
+//Detect local maxima and local minima in a floating manner and use averaging to update the triggers
 void automodifyTriggers(float val)
 {
     bool changed = false;
@@ -609,7 +612,10 @@ void automodifyTriggers(float val)
             value_added = true;
         }
 
-        if (lowestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && value_added)
+        //Get new trigger values and average over AUTO_TRIGGER_COUNT values - except if there are not yet triggervalues - then average over AUTO_TRIGGER_MIN_COUNT values
+        if (((lowestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && value_added))
+            || (lowestValuesToTrigger.getCount() == AUTO_TRIGGER_MIN_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_MIN_COUNT  
+                && (triggerLevelHigh.value == DEFAULT_HIGH_TRIGGER_VAL || triggerLevelLow.value == DEFAULT_LOW_TRIGGER_VAL )))
         {
             float lowerAverage = lowestValuesToTrigger.getAverage();
             float higherAverage = highestValuesToTrigger.getAverage();
@@ -734,14 +740,14 @@ void setup()
     && triggerLevelLow.byte[2] == 0xFF 
     && triggerLevelLow.byte[3] == 0xFF) 
     {
-        triggerLevelLow.value = 100; 
+        triggerLevelLow.value = DEFAULT_LOW_TRIGGER_VAL; 
     }
     if (triggerLevelHigh.byte[0] == 0xFF 
         && triggerLevelHigh.byte[1] == 0xFF 
         && triggerLevelHigh.byte[2] == 0xFF 
         && triggerLevelHigh.byte[3] == 0xFF) 
     {
-        triggerLevelHigh.value = 4900; 
+        triggerLevelHigh.value = DEFAULT_HIGH_TRIGGER_VAL; 
     }
     
     if (data_period_exceed_alarm.byte[0] == 0xFF 
@@ -853,7 +859,7 @@ void loop()
         // Especially the first check prevents transfers of data without any need as zero measurements will be delayed until the array size is filled up till maximum
         // So if there is no flow at all the data will be transferred only every 5 minutes. With DR5 (SF7) we are allowed to transmit ~18 messages per hour on average
         //(every three minutes) to fullfill the TTN fair usage policy. This change will allow us to do so if there is not that much flow most of the day.
-        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
+        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter >= DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
         {
             dprintln("Send data to gateway");
             do_send(&sendjob);
