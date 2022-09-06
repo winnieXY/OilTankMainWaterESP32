@@ -91,6 +91,15 @@ unsigned int data_summation_period = 0;
 
 #define DATA_ARRAY_SIZE 5 // Default value - Usually transmit after 5 measurement - only transmit faster if on a good datarate
                           // EEPROM Address "1" -> Data is stored as is
+
+#define LPP_LOWERTRIGGER_ADDR DATA_ARRAY_SIZE + 4
+#define LPP_HIGHERTRIGGER_ADDR DATA_ARRAY_SIZE + 5
+#define LPP_AUTOTRIGGER_ADDR DATA_ARRAY_SIZE + 6
+#define LPP_TEMP_ADDR DATA_ARRAY_SIZE + 1
+#define LPP_OIL_LVL_ADDR DATA_ARRAY_SIZE + 2
+#define LPP_OIL_LTR_ADDR DATA_ARRAY_SIZE + 3
+
+
 unsigned int data_array_size = 0;
 
 #define DATA_PERIOD_EXCEED_ALARM 20              // Default value - transfer data immediately if the data count per period exceeds this value
@@ -163,6 +172,8 @@ RunningMedian lowestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
 RunningMedian highestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
 double lastValLow = NAN;
 double lastValHigh = NAN;
+bool foundLow = false;
+bool foundHigh = false;
 
 /******************************************************************************
  * End Magnetometer Setup
@@ -569,64 +580,77 @@ int detectTrigger(float val)
 void automodifyTriggers(float val)
 {
     bool changed = false;
+    bool value_added = false;
+
     if (val < lastValLow || lastValLow == NAN)
     {
         lastValLow = val;
+        if (foundLow) foundHigh = true; //First we have to find a high value before we can accept a low value otherwise we could be on a rising edge
     }
-    if (val > lastValHigh || lastValHigh == NAN)
+    else if (val/lastValLow > 1.05 && (val > lastValHigh || lastValHigh == NAN)) // 5% margin to correct for flickering
     {
         lastValHigh = val;
+        foundLow = true; // Sounds ridicoulus - but now we know that we have high value and that the next low value will be a low value indeed
     }
-    //Define the value as new local minima if the value if the current reading is 5% bigger than the last smallest reading 
-    if (val > lastValLow*1.05  && lastValHigh != NAN && lastValLow != NAN)
+    if (foundHigh && foundLow) //We have a defined low and high value which are actual minima and maxima and not a value on a rising/falling edge
     {
-        lowestValuesToTrigger.add(lastValLow);
-        lastValLow = NAN;
-    }
-    //Define the value as new local maxima if the value if the current reading is 5% smaller than the last biggest reading 
-    if (val < lastValHigh*0.95 && lastValHigh != NAN && lastValLow != NAN)
-    {
-        highestValuesToTrigger.add(lastValHigh);
-        lastValHigh = NAN;
-    }
-    if (lowestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT)
-    {
-        float lowerAverage = lowestValuesToTrigger.getAverage();
-        float higherAverage = highestValuesToTrigger.getAverage();
-
-        float divlowHigh = higherAverage - lowerAverage;
-        float triggerLevelHighNew = higherAverage - divlowHigh * 0.3;
-        float triggerLevelLowNew = lowerAverage + divlowHigh * 0.3;
-
-        char str[100];
-        if (abs(triggerLevelLowNew - triggerLevelLow.value) / triggerLevelLowNew > 0.1)
+        //Define the value as new local minima if the value if the current reading is 5% bigger than the last smallest reading 
+        if (val > lastValLow*1.05  && lastValHigh != NAN && lastValLow != NAN && lastValHigh/lastValLow > 0.3) // %30 percent difference between min/max needed
         {
-            triggerLevelLow.value = triggerLevelLowNew;
-            lpp.addAnalogInput(DATA_ARRAY_SIZE + 4, triggerLevelLow.value);
-
-            EEPROM.write(6,triggerLevelLow.byte[0]);
-            EEPROM.write(7,triggerLevelLow.byte[1]);
-            EEPROM.write(8,triggerLevelLow.byte[2]);
-            EEPROM.write(9,triggerLevelLow.byte[3]);
-            changed = true;
-
+            lowestValuesToTrigger.add(lastValLow);
+            lastValLow = NAN;
+            value_added = true;
         }
-        if (abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1)
+        //Define the value as new local maxima if the value if the current reading is 5% smaller than the last biggest reading 
+        if (val < lastValHigh*0.95 && lastValHigh != NAN && lastValLow != NAN && lastValHigh/lastValLow > 0.3)// %30 percent difference
         {
-            triggerLevelHigh.value = triggerLevelHighNew;
-            lpp.addAnalogInput(DATA_ARRAY_SIZE + 5, triggerLevelHigh.value);
-            
-            EEPROM.write(10, triggerLevelHigh.byte[0]);
-            EEPROM.write(11, triggerLevelHigh.byte[1]);
-            EEPROM.write(12, triggerLevelHigh.byte[2]);
-            EEPROM.write(13, triggerLevelHigh.byte[3]);
-            changed = true;
+            highestValuesToTrigger.add(lastValHigh);
+            lastValHigh = NAN;
+            value_added = true;
         }
-        if (changed) 
+
+        if (lowestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && value_added)
         {
-            EEPROM.commit();
+            float lowerAverage = lowestValuesToTrigger.getAverage();
+            float higherAverage = highestValuesToTrigger.getAverage();
+
+            float divlowHigh = higherAverage - lowerAverage;
+            float triggerLevelHighNew = higherAverage - divlowHigh * 0.2;
+            float triggerLevelLowNew = lowerAverage + divlowHigh * 0.2;
+
+            char str[100];
+            if (abs(triggerLevelLowNew - triggerLevelLow.value) / triggerLevelLowNew > 0.1)
+            {
+                triggerLevelLow.value = triggerLevelLowNew;
+                lpp.addAnalogInput(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
+
+                EEPROM.write(EEPROM_BEGIN_TRIGGERLOW,triggerLevelLow.byte[0]);
+                EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 1,triggerLevelLow.byte[1]);
+                EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 2,triggerLevelLow.byte[2]);
+                EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 3,triggerLevelLow.byte[3]);
+                changed = true;
+            }
+            if (abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1)
+            {
+                triggerLevelHigh.value = triggerLevelHighNew;
+                lpp.addAnalogInput(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
+                
+                EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH, triggerLevelHigh.byte[0]);
+                EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 1, triggerLevelHigh.byte[1]);
+                EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 2, triggerLevelHigh.byte[2]);
+                EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 3, triggerLevelHigh.byte[3]);
+                changed = true;
+            }
+            if (changed) 
+            {
+                EEPROM.commit();
+            }
         }
+        foundLow = false;
+        foundHigh = false;
     }
+    
+   
 }
 
 // Perform a measurement and detect a trigger. "-1" if no trigger is detected, otherwise 0 or 1.
@@ -807,17 +831,18 @@ void loop()
         lpp.addAnalogOutput(array_counter, watercount);
 
         //For testing purposes
-        lpp.addAnalogInput(DATA_ARRAY_SIZE + 5, triggerLevelHigh.value);
-        lpp.addAnalogInput(DATA_ARRAY_SIZE + 4, triggerLevelLow.value);
-        lpp.addDigitalInput(DATA_ARRAY_SIZE + 6, autoOptimizeTrigger);
+        lpp.addAnalogInput(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
+        lpp.addAnalogInput(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
+        lpp.addDigitalInput(LPP_AUTOTRIGGER_ADDR, autoOptimizeTrigger);
 
 
         // Transmit the oil values just every hour - we do not need these values more often
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
         {
-            lpp.addTemperature(DATA_ARRAY_SIZE + 1,temp);
-            lpp.addAnalogOutput(DATA_ARRAY_SIZE + 2, level);
-            lpp.addAnalogOutput(DATA_ARRAY_SIZE + 3, (level * LITER_PER_MM));
+            lpp.addTemperature(LPP_TEMP_ADDR,temp);
+            lpp.addAnalogOutput(LPP_OIL_LVL_ADDR, level);
+            lpp.addAnalogOutput(LPP_OIL_LTR_ADDR, (level * LITER_PER_MM));
+
             oil_last_transmit_time = millis();
         }
 
