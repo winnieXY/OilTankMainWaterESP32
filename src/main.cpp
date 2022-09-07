@@ -87,7 +87,6 @@ unsigned int data_count_sum = 0;
 
 #define DATA_SUMMATION_PERIOD 60000 // Default value in ms - Fetch data Every minute
                                     // EEPROM Address "0" -> Data is stored in s and needs to be multiplied by 1000 to get the PERIOD
-unsigned int data_summation_period = 0;
 
 #define DATA_ARRAY_SIZE 5 // Default value - Usually transmit after 5 measurement - only transmit faster if on a good datarate
                           // EEPROM Address "1" -> Data is stored as is
@@ -249,12 +248,13 @@ void user_request_network_time_callback(void *pVoidUserUTCTime, int flagSuccess)
     dprintln();
 }
 
-void do_send(osjob_t *j)
+bool do_send(osjob_t *j)
 {
     // Check if there is not a current TX/RX job running
     if (LMIC.opmode & OP_TXRXPEND)
     {
         dprintln(F("OP_TXRXPEND, not sending"));
+        return false;
     }
     else
     {
@@ -270,9 +270,9 @@ void do_send(osjob_t *j)
         // Prepare upstream data transmission at the next possible time.
         LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
         lpp.reset();
+        dprintln(F("Packet queued"));
+        return true;
     }
-    dprintln(F("Packet queued"));
-    // Next TX is scheduled after TX_COMPLETE event.
 }
 
 void printHex2(unsigned v)
@@ -826,24 +826,18 @@ void loop()
         dprintln("Get Data!");
 
         // Get data
-        // int datatmp = 0;
+        // Use the watercount instead of the interrupt
+        int datatmp = watercount;
+        watercount = 0;
         // ATOMIC()
         // {
         //     datatmp = datacounter;
         //     datacounter = 0;
         // }
-
-        // Use the watercount instead of the interrupt
-        data_count_sum += watercount;
+        data_count_sum += datatmp;
 
         lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
-        lpp.addAnalogOutput(array_counter, watercount);
-
-        //For testing purposes
-        lpp.addLuminosity(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
-        lpp.addLuminosity(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
-        lpp.addDigitalInput(LPP_AUTOTRIGGER_ADDR, autoOptimizeTrigger);
-
+        lpp.addAnalogOutput(array_counter, datatmp);
 
         // Transmit the oil values just every hour - we do not need these values more often
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
@@ -862,23 +856,19 @@ void loop()
         // Especially the first check prevents transfers of data without any need as zero measurements will be delayed until the array size is filled up till maximum
         // So if there is no flow at all the data will be transferred only every 5 minutes. With DR5 (SF7) we are allowed to transmit ~18 messages per hour on average
         //(every three minutes) to fullfill the TTN fair usage policy. This change will allow us to do so if there is not that much flow most of the day.
-        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || watercount > data_period_exceed_alarm.value)
+        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
         {
             dprintln("Send data to gateway");
-            do_send(&sendjob);
-
-            // Reset Counter
-            array_counter = 1;
-            // Reset Data Count Summation
-            data_count_sum = 0;
-        }
-        else
-        {
-            // Increase counter if not sending data to gateway
-            array_counter++;
-        }
-        //Reset Water Counter again as it is saved already
-        watercount = 0;
+            if (do_send(&sendjob)) 
+            {
+                // Reset Counter
+                array_counter = 0;
+                // Reset Data Count Summation
+                data_count_sum = 0;
+            }
+        }    
+        // Increase counter
+        array_counter++;
 
         // Set time where the next data storage should occur
         data_fetch_time = millis();
