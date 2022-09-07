@@ -893,7 +893,6 @@ void loop()
             if (err_code != 0) 
             {
                 lpp.addLuminosity(LPP_ERR_ADDR, err_code);
-                err_code = 0;
             }
 
             dprintln("Send data to gateway");
@@ -903,6 +902,8 @@ void loop()
                 array_counter = 0;
                 // Reset Data Count Summation
                 data_count_sum = 0;
+                //Reset Error Code
+                err_code = 0;
             }
         }    
         // Increase counter
