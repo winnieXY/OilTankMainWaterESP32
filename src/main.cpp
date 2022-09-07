@@ -75,8 +75,11 @@ uint32_t userUTCTime; // Seconds since the UTC epoch
 #define TIMEUPDATE_SPAN 86400000 // Once per day
 unsigned long timeupdate = 0;
 
+//Do we need a verifaction that the sending worked? Defaults to false
+bool tx_confirmation = false;
+
 /******************************************************************************
- * Timing & Array Declarations
+ * Timing & LPP Array Declarations
  *****************************************************************************/
 unsigned long int data_fetch_time = 0;
 unsigned int array_counter = 1;
@@ -91,13 +94,14 @@ unsigned int data_count_sum = 0;
 #define DATA_ARRAY_SIZE 5 // Default value - Usually transmit after 5 measurement - only transmit faster if on a good datarate
                           // EEPROM Address "1" -> Data is stored as is
 
-#define LPP_LOWERTRIGGER_ADDR DATA_ARRAY_SIZE + 4
-#define LPP_HIGHERTRIGGER_ADDR DATA_ARRAY_SIZE + 5
-#define LPP_AUTOTRIGGER_ADDR DATA_ARRAY_SIZE + 6
-#define LPP_EXCEEDALARM_ADDR DATA_ARRAY_SIZE + 7
-#define LPP_TEMP_ADDR DATA_ARRAY_SIZE + 1
-#define LPP_OIL_LVL_ADDR DATA_ARRAY_SIZE + 2
-#define LPP_OIL_LTR_ADDR DATA_ARRAY_SIZE + 3
+#define LPP_TEMP_ADDR DATA_ARRAY_SIZE + 1 //LPP Address for the Temperature Sensor on the Ultrasonic Distance Unit (US-100)
+#define LPP_OIL_LVL_ADDR DATA_ARRAY_SIZE + 2 //LPP Address for the Oillevel in mm
+#define LPP_OIL_LTR_ADDR DATA_ARRAY_SIZE + 3 //LPP Address for the Oilamount in liter
+#define LPP_LOWERTRIGGER_ADDR DATA_ARRAY_SIZE + 4 //LPP Address for the Lower Trigger Level for the IR Water Counter
+#define LPP_HIGHERTRIGGER_ADDR DATA_ARRAY_SIZE + 5 //LPP Address for the Higher Trigger Level of the IR Water Counter
+#define LPP_AUTOTRIGGER_ADDR DATA_ARRAY_SIZE + 6 //LPP Address for the Autotrigger flag 
+#define LPP_EXCEEDALARM_ADDR DATA_ARRAY_SIZE + 7 //LPP Address for the Exceed Alarm Amount after which the water amount is reported directly
+#define LPP_ERR_ADDR DATA_ARRAY_SIZE + 8 //LPP Address for the Error Register
 
 //Modified data_array_size depending on the spreading factor. Good spreading factors -> =1, bad ones =5, in between =2
 unsigned int data_array_size = 0;
@@ -105,7 +109,6 @@ unsigned int data_array_size = 0;
 #define DATA_PERIOD_EXCEED_ALARM 20              // Default value - transfer data immediately if the data count per period exceeds this value
 
 uint2byte data_period_exceed_alarm;
-
 
 // Debouncing the interrupt.
 #define DEBOUNCE_TIME 250 // defaulting to 250ms debounce time
@@ -179,14 +182,25 @@ bool foundLow = false;
 bool foundHigh = false;
 
 /******************************************************************************
- * End Magnetometer Setup
+ * End IR Reader Setup
  *****************************************************************************/
 
+/******************************************************************************
+ * EEPROM Addresses
+ *****************************************************************************/
 #define EEPROM_BEGIN_DATA_AUTO_TRIGGER 0
 #define EEPROM_BEGIN_TRIGGERLOW 4
 #define EEPROM_BEGIN_TRIGGERHIGH 8
 #define EEPROM_BEGIN_WATER_EXCEED_LIMIT 12
 
+/******************************************************************************
+ * Error Codes which are transmitted via LPP 
+ *****************************************************************************/
+#define ERR_US100 (1<<0)
+#define ERR_IR_SENSOR    (1<<1)
+#define ERR_EARLY_RETRANSMISSION (1<<2)
+#define ERR_INVALID_DOWNLINK (1<<3)
+u8_t err_code  = 0;
 
 
 /******************************************************************************
@@ -255,6 +269,7 @@ bool do_send(osjob_t *j)
     if (LMIC.opmode & OP_TXRXPEND)
     {
         dprintln(F("OP_TXRXPEND, not sending"));
+        err_code = err_code | ERR_EARLY_RETRANSMISSION;
         return false;
     }
     else
@@ -269,7 +284,10 @@ bool do_send(osjob_t *j)
         // Set flag that a  transmit is ongoing
         flag_TXCOMPLETE = false;
         // Prepare upstream data transmission at the next possible time.
-        LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
+        int confirmed = tx_confirmation ? 1 : 0;
+        LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), confirmed);
+        //Defaults to false
+        tx_confirmation = false;
         lpp.reset();
         dprintln(F("Packet queued"));
         return true;
@@ -339,12 +357,13 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             dprintln("Got Exceed Alarm Limit via Downstream:"); dprint(data_period_exceed_alarm.value); dprintln("]");
         }
         if (modify) {
+            tx_confirmation = true; //Verify that the changed parameters are passed back as verification that everything works
             EEPROM.commit();
         }
-
     }
     else {
         dprintln("Recieved downlink is no valid cayenneLPP!");
+        err_code = err_code | ERR_INVALID_DOWNLINK;
     }
 }
 
@@ -518,6 +537,10 @@ void messung() // Sensor abfragen
             Distance = (HByte * 256 + LByte);
             delay(200);
         }
+        else 
+        {
+            err_code = err_code | ERR_US100;
+        }
         // Serial.println(".");
         dprintln("Read " + String(Distance) + "mm");
         US100distance.add(Distance);
@@ -541,6 +564,10 @@ void messung() // Sensor abfragen
         {
             US100temp -= 45; // Correct by the 45 degree offset of the US100.
         }
+    }
+    else 
+    {
+        err_code = err_code |ERR_US100;
     }
     US100Serial.end();
     temp = US100temp;
@@ -863,6 +890,12 @@ void loop()
         //(every three minutes) to fullfill the TTN fair usage policy. This change will allow us to do so if there is not that much flow most of the day.
         if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
         {
+            if (err_code != 0) 
+            {
+                lpp.addLuminosity(LPP_ERR_ADDR, err_code);
+                err_code = 0;
+            }
+
             dprintln("Send data to gateway");
             if (do_send(&sendjob)) 
             {
