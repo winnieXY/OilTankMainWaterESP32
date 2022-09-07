@@ -94,11 +94,12 @@ unsigned int data_count_sum = 0;
 #define LPP_LOWERTRIGGER_ADDR DATA_ARRAY_SIZE + 4
 #define LPP_HIGHERTRIGGER_ADDR DATA_ARRAY_SIZE + 5
 #define LPP_AUTOTRIGGER_ADDR DATA_ARRAY_SIZE + 6
+#define LPP_EXCEEDALARM_ADDR DATA_ARRAY_SIZE + 7
 #define LPP_TEMP_ADDR DATA_ARRAY_SIZE + 1
 #define LPP_OIL_LVL_ADDR DATA_ARRAY_SIZE + 2
 #define LPP_OIL_LTR_ADDR DATA_ARRAY_SIZE + 3
 
-
+//Modified data_array_size depending on the spreading factor. Good spreading factors -> =1, bad ones =5, in between =2
 unsigned int data_array_size = 0;
 
 #define DATA_PERIOD_EXCEED_ALARM 20              // Default value - transfer data immediately if the data count per period exceeds this value
@@ -304,7 +305,8 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             autoOptimizeTrigger = root["digital_in_0"];
             EEPROM.write(EEPROM_BEGIN_DATA_AUTO_TRIGGER, autoOptimizeTrigger);
             modify = true;
-            dprint("Got AutoOptimizeTrigger via Downstream: ["); dprint(autoOptimizeTrigger); dprintln("]");
+            lpp.addDigitalInput(LPP_AUTOTRIGGER_ADDR, autoOptimizeTrigger);
+            dprint("Got AutoOptimizeTrigger via Downstream: ["); dprint(autoOptimizeTrigger); dprintln("]");      
         }
         if (root.containsKey("luminosity_1")) { //Low Trigger Value
             triggerLevelLow.value = root["luminosity_1"];
@@ -313,6 +315,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 2, triggerLevelLow.byte[2]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 3, triggerLevelLow.byte[3]);
             modify = true;
+            lpp.addLuminosity(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
             dprintln("Got Low Level Trigger Value via Downstream: ["); dprint(triggerLevelLow.value); dprintln("]");
         }
         if (root.containsKey("luminosity_2")) {
@@ -322,6 +325,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 2, triggerLevelHigh.byte[2]);
             EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 3, triggerLevelHigh.byte[3]);
             modify = true;
+            lpp.addLuminosity(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
             dprintln("Got High Level Trigger Value via Downstream:"); dprint(triggerLevelHigh.value); dprintln("]");
         }
         if (root.containsKey("luminosity_3")) {
@@ -331,6 +335,7 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             EEPROM.write(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 2, data_period_exceed_alarm.byte[2]);
             EEPROM.write(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 3, data_period_exceed_alarm.byte[3]);
             modify = true;
+            lpp.addLuminosity(LPP_EXCEEDALARM_ADDR, data_period_exceed_alarm.value);
             dprintln("Got Exceed Alarm Limit via Downstream:"); dprint(data_period_exceed_alarm.value); dprintln("]");
         }
         if (modify) {
