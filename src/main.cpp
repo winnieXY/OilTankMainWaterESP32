@@ -704,16 +704,15 @@ int irprobe_measurement()
     delay(10);
     // read the analog in value:
     sensorValueOn = analogRead(analogInPin);
+    if (sensorValueOn == DEFAULT_HIGH_TRIGGER_VAL || sensorValueOn == DEFAULT_LOW_TRIGGER_VAL 
+        || sensorValueOff == DEFAULT_HIGH_TRIGGER_VAL || sensorValueOff == DEFAULT_LOW_TRIGGER_VAL) 
+    {
+        err_code = err_code | ERR_IR_SENSOR;
+    } 
+
     sensorValue = sensorValueOn - sensorValueOff;
 
     float value = lowpass(sensorValue);
-    dprint(sensorValue);
-    dprint(",");
-    dprint(value);
-    dprint(",");
-    dprint(triggerLevelHigh.value);
-    dprint(",");
-    dprintln(triggerLevelLow.value);
 
     int tmp = detectTrigger(value);
     if (autoOptimizeTrigger) //Can be set via lora
