@@ -628,7 +628,7 @@ void automodifyTriggers(float val)
             if (abs(triggerLevelLowNew - triggerLevelLow.value) / triggerLevelLowNew > 0.1)
             {
                 triggerLevelLow.value = triggerLevelLowNew;
-                lpp.addAnalogInput(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
+                lpp.addLuminosity(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
 
                 EEPROM.write(EEPROM_BEGIN_TRIGGERLOW,triggerLevelLow.byte[0]);
                 EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 1,triggerLevelLow.byte[1]);
@@ -639,7 +639,7 @@ void automodifyTriggers(float val)
             if (abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1)
             {
                 triggerLevelHigh.value = triggerLevelHighNew;
-                lpp.addAnalogInput(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
+                lpp.addLuminosity(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
                 
                 EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH, triggerLevelHigh.byte[0]);
                 EEPROM.write(EEPROM_BEGIN_TRIGGERHIGH + 1, triggerLevelHigh.byte[1]);
@@ -675,13 +675,13 @@ int irprobe_measurement()
     sensorValue = sensorValueOn - sensorValueOff;
 
     float value = lowpass(sensorValue);
-    // dprint(sensorValue);
-    // dprint(",");
-    // dprint(value);
-    // dprint(",");
-    // dprint(triggerLevelHigh.value);
-    // dprint(",");
-    // dprintln(triggerLevelLow.value);
+    dprint(sensorValue);
+    dprint(",");
+    dprint(value);
+    dprint(",");
+    dprint(triggerLevelHigh.value);
+    dprint(",");
+    dprintln(triggerLevelLow.value);
 
     int tmp = detectTrigger(value);
     if (autoOptimizeTrigger) //Can be set via lora
@@ -776,7 +776,7 @@ void setup()
     pinMode(irOutPin, OUTPUT);
 
     //Leave the sda pin floating - workaround for wrong wiring
-    pinMode(sdapin, INPUT);
+    pinMode(sdapin, INPUT_PULLUP);
 
     // Attach to interrupt
     attachInterrupt(digitalPinToInterrupt(26), datacount, RISING);
@@ -826,12 +826,12 @@ void loop()
         dprintln("Get Data!");
 
         // Get data
-        int datatmp = 0;
-        ATOMIC()
-        {
-            datatmp = datacounter;
-            datacounter = 0;
-        }
+        // int datatmp = 0;
+        // ATOMIC()
+        // {
+        //     datatmp = datacounter;
+        //     datacounter = 0;
+        // }
 
         // Use the watercount instead of the interrupt
         data_count_sum += watercount;
@@ -840,8 +840,8 @@ void loop()
         lpp.addAnalogOutput(array_counter, watercount);
 
         //For testing purposes
-        lpp.addAnalogInput(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
-        lpp.addAnalogInput(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
+        lpp.addLuminosity(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
+        lpp.addLuminosity(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
         lpp.addDigitalInput(LPP_AUTOTRIGGER_ADDR, autoOptimizeTrigger);
 
 
@@ -849,8 +849,8 @@ void loop()
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
         {
             lpp.addTemperature(LPP_TEMP_ADDR,temp);
-            lpp.addAnalogOutput(LPP_OIL_LVL_ADDR, level);
-            lpp.addAnalogOutput(LPP_OIL_LTR_ADDR, (level * LITER_PER_MM));
+            lpp.addAnalogInput(LPP_OIL_LVL_ADDR, level);
+            lpp.addAnalogInput(LPP_OIL_LTR_ADDR, (level * LITER_PER_MM));
 
             oil_last_transmit_time = millis();
         }
@@ -862,7 +862,7 @@ void loop()
         // Especially the first check prevents transfers of data without any need as zero measurements will be delayed until the array size is filled up till maximum
         // So if there is no flow at all the data will be transferred only every 5 minutes. With DR5 (SF7) we are allowed to transmit ~18 messages per hour on average
         //(every three minutes) to fullfill the TTN fair usage policy. This change will allow us to do so if there is not that much flow most of the day.
-        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter >= DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
+        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || watercount > data_period_exceed_alarm.value)
         {
             dprintln("Send data to gateway");
             do_send(&sendjob);
@@ -871,13 +871,14 @@ void loop()
             array_counter = 1;
             // Reset Data Count Summation
             data_count_sum = 0;
-            watercount = 0;
         }
         else
         {
             // Increase counter if not sending data to gateway
             array_counter++;
         }
+        //Reset Water Counter again as it is saved already
+        watercount = 0;
 
         // Set time where the next data storage should occur
         data_fetch_time = millis();
