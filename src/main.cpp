@@ -627,22 +627,22 @@ void automodifyTriggers(float val)
         lastValLow = val;
         if (foundLow) foundHigh = true; //First we have to find a high value before we can accept a low value otherwise we could be on a rising edge
     }
-    else if (val/lastValLow > 1.05 && (val > lastValHigh || lastValHigh == NAN)) // 5% margin to correct for flickering
+    else if (val/lastValLow > 1.1 && (val > lastValHigh || lastValHigh == NAN)) // 5% margin to correct for flickering
     {
         lastValHigh = val;
         foundLow = true; // Sounds ridicoulus - but now we know that we have high value and that the next low value will be a low value indeed
     }
-    if (foundHigh && foundLow) //We have a defined low and high value which are actual minima and maxima and not a value on a rising/falling edge
+    if (foundHigh && foundLow && val > lastValLow*1.1) //We have a defined low and high value which are actual minima and maxima and not a value on a rising/falling edge
     {
         //Define the value as new local minima if the value if the current reading is 5% bigger than the last smallest reading 
-        if (val > lastValLow*1.05  && lastValHigh != NAN && lastValLow != NAN && lastValHigh/lastValLow > 0.3) // %30 percent difference between min/max needed
+        if (val > lastValLow*1.05  && lastValHigh != NAN && lastValLow != NAN) // %30 percent difference between min/max needed
         {
             lowestValuesToTrigger.add(lastValLow);
             lastValLow = NAN;
             value_added = true;
         }
         //Define the value as new local maxima if the value if the current reading is 5% smaller than the last biggest reading 
-        if (val < lastValHigh*0.95 && lastValHigh != NAN && lastValLow != NAN && lastValHigh/lastValLow > 0.3)// %30 percent difference
+        if (val < lastValHigh*0.9 && lastValHigh != NAN && lastValLow != NAN)// %30 percent difference
         {
             highestValuesToTrigger.add(lastValHigh);
             lastValHigh = NAN;
@@ -650,9 +650,9 @@ void automodifyTriggers(float val)
         }
 
         //Get new trigger values and average over AUTO_TRIGGER_COUNT values - except if there are not yet triggervalues - then average over AUTO_TRIGGER_MIN_COUNT values
-        if (((lowestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && value_added))
+        if (autoOptimizeTrigger && (((lowestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_COUNT && value_added))
             || (lowestValuesToTrigger.getCount() == AUTO_TRIGGER_MIN_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_MIN_COUNT  
-                && (triggerLevelHigh.value == DEFAULT_HIGH_TRIGGER_VAL || triggerLevelLow.value == DEFAULT_LOW_TRIGGER_VAL )))
+                && (triggerLevelHigh.value == DEFAULT_HIGH_TRIGGER_VAL || triggerLevelLow.value == DEFAULT_LOW_TRIGGER_VAL ))))
         {
             float lowerAverage = lowestValuesToTrigger.getAverage();
             float higherAverage = highestValuesToTrigger.getAverage();
@@ -720,13 +720,12 @@ int irprobe_measurement()
     float value = lowpass(sensorValue);
 
     int tmp = detectTrigger(value);
-    if (autoOptimizeTrigger) //Can be set via lora
-        automodifyTriggers(value);
+    automodifyTriggers(value);
     if (tmp == 1)
     {
-        return tmp;
+        dprintln("Detected a flow");
     }
-    return 0;
+    return tmp;
 }
 
 void setup()
