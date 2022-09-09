@@ -104,6 +104,8 @@ unsigned int data_count_sum = 0;
 #define LPP_ERR_ADDR DATA_ARRAY_SIZE + 9 //LPP Address for the Error Register
 #define LPP_LOWERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 10
 #define LPP_HIGHERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 11
+#define LPP_DEBUG_OUTPUT_FLAG_ADDR DATA_ARRAY_SIZE + 12
+#define LPP_DYNAMIC_DATA_ARRAY_SIZE_ADDR DATA_ARRAY_SIZE + 13
 
 //Modified data_array_size depending on the spreading factor. Good spreading factors -> =1, bad ones =5, in between =2
 unsigned int data_array_size = 0;
@@ -170,8 +172,8 @@ boolean autoOptimizeTrigger = true;
 boolean triggerState = false;
 
 
-#define AUTO_TRIGGER_COUNT 200 //Average over 200L
-#define AUTO_TRIGGER_MIN_COUNT 20 //Get a first value after 20 cycles if no trigger is available at all
+#define AUTO_TRIGGER_COUNT 50 //Average over 200L
+#define AUTO_TRIGGER_MIN_COUNT 10 //Get a first value after 20 cycles if no trigger is available at all
 #define DEFAULT_LOW_TRIGGER_VAL 0 //ADC Min Range - Default lower trigger value
 #define DEFAULT_HIGH_TRIGGER_VAL 4095 //ADC Max Range - Default high trigger value
 RunningMedian lowestValuesToTrigger = RunningMedian(AUTO_TRIGGER_COUNT);
@@ -191,7 +193,8 @@ bool foundHigh = false;
 #define EEPROM_BEGIN_DATA_AUTO_TRIGGER 0
 #define EEPROM_BEGIN_TRIGGERLOW 4
 #define EEPROM_BEGIN_TRIGGERHIGH 8
-#define EEPROM_BEGIN_WATER_EXCEED_LIMIT 12
+#define EEPROM_BEGIN_WATER_EXCEED_LIMIT 12 //4 bit
+#define EEPROM_BEGIN_DEBUG_OUTPUT_TRIGGER 16 //one bit
 
 /******************************************************************************
  * Error Codes which are transmitted via LPP 
@@ -202,6 +205,8 @@ bool foundHigh = false;
 #define ERR_INVALID_DOWNLINK (1<<3)
 #define ERR_INVALID_TIME (1<<4)
 u8_t err_code  = 0;
+boolean debug_output_flag = false;
+
 
 
 /******************************************************************************
@@ -359,6 +364,13 @@ void parseDownstream(u1_t frame[255], u1_t databeg, u1_t dataLen)
             lpp.addLuminosity(LPP_EXCEEDALARM_ADDR, data_period_exceed_alarm.value);
             dprintln("Got Exceed Alarm Limit via Downstream:"); dprint(data_period_exceed_alarm.value); dprintln("]");
         }
+        if (root.containsKey("digital_in_4")) { //Automatic trigger function
+            debug_output_flag = root["digital_in_4"];
+            EEPROM.write(EEPROM_BEGIN_DEBUG_OUTPUT_TRIGGER, debug_output_flag);
+            modify = true;
+            lpp.addDigitalInput(LPP_DEBUG_OUTPUT_FLAG_ADDR, debug_output_flag);
+            dprint("Got Debug Output Trigger Flag via Downstream: ["); dprint(debug_output_flag); dprintln("]");      
+        }
         if (modify) {
             tx_confirmation = true; //Verify that the changed parameters are passed back as verification that everything works
             EEPROM.commit();
@@ -462,6 +474,8 @@ void onEvent(ev_t ev)
             data_array_size = DATA_ARRAY_SIZE;
             break;
         }
+        if (debug_output_flag)
+            lpp.addLuminosity(LPP_DYNAMIC_DATA_ARRAY_SIZE_ADDR, data_array_size);
         break;
     case EV_LOST_TSYNC:
         dprintln(F("EV_LOST_TSYNC"));
@@ -654,15 +668,15 @@ void automodifyTriggers(float val)
             || (lowestValuesToTrigger.getCount() == AUTO_TRIGGER_MIN_COUNT && highestValuesToTrigger.getCount() == AUTO_TRIGGER_MIN_COUNT  
                 && (triggerLevelHigh.value == DEFAULT_HIGH_TRIGGER_VAL || triggerLevelLow.value == DEFAULT_LOW_TRIGGER_VAL ))))
         {
-            float lowerAverage = lowestValuesToTrigger.getAverage();
-            float higherAverage = highestValuesToTrigger.getAverage();
+            //Don't use the average - use max/min as we need to be sure to detect _every_ pass 
+            float lowerAverage = lowestValuesToTrigger.getHighest();
+            float higherAverage = highestValuesToTrigger.getLowest();
 
             float divlowHigh = higherAverage - lowerAverage;
             float triggerLevelHighNew = higherAverage - divlowHigh * 0.2;
             float triggerLevelLowNew = lowerAverage + divlowHigh * 0.2;
 
-            char str[100];
-            if (abs(triggerLevelLowNew - triggerLevelLow.value) / triggerLevelLowNew > 0.1)
+            if ((abs(triggerLevelLowNew - triggerLevelLow.value) / triggerLevelLowNew > 0.1) || triggerLevelLow.value <= lowerAverage )
             {
                 triggerLevelLow.value = triggerLevelLowNew;
                 lpp.addLuminosity(LPP_LOWERTRIGGER_ADDR, triggerLevelLow.value);
@@ -673,7 +687,7 @@ void automodifyTriggers(float val)
                 EEPROM.write(EEPROM_BEGIN_TRIGGERLOW + 3,triggerLevelLow.byte[3]);
                 changed = true;
             }
-            if (abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1)
+            if ((abs(triggerLevelHighNew - triggerLevelHigh.value) / triggerLevelHighNew > 0.1) || triggerLevelHigh.value >= higherAverage )
             {
                 triggerLevelHigh.value = triggerLevelHighNew;
                 lpp.addLuminosity(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
@@ -768,6 +782,8 @@ void setup()
     data_period_exceed_alarm.byte[1] = EEPROM.read(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 1);
     data_period_exceed_alarm.byte[2] = EEPROM.read(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 2);
     data_period_exceed_alarm.byte[3] = EEPROM.read(EEPROM_BEGIN_WATER_EXCEED_LIMIT + 3);
+
+    debug_output_flag = EEPROM.read(EEPROM_BEGIN_DEBUG_OUTPUT_TRIGGER);
     
     //Reset values to some sane default values if nothing is stored in eeprom
     if (triggerLevelLow.byte[0] == 0xFF 
@@ -841,6 +857,9 @@ void setup()
 
 void loop() 
 {
+    //Our implementation of the usage of millis() should be overflow/rollover save - see
+    //https://www.norwegiancreations.com/2018/10/arduino-tutorial-avoiding-the-overflow-issue-when-using-millis-and-micros/
+    //https://arduino.stackexchange.com/questions/12587/how-can-i-handle-the-millis-rollover
     unsigned long now = millis();
     /**************************************************************************
      * Measure the magnetic field if no transmission is pending to not ruin the transmission
@@ -891,8 +910,14 @@ void loop()
             {
                 lpp.addLuminosity(LPP_ERR_ADDR, err_code);
             }
-            lpp.addLuminosity(LPP_LOWERTRIGGER_MEAN_ADDR, int(lowestValuesToTrigger.getAverage()));
-            lpp.addLuminosity(LPP_HIGHERTRIGGER_MEAN_ADDR, int(highestValuesToTrigger.getAverage()));
+            if (debug_output_flag) 
+            {
+                lpp.addLuminosity(LPP_LOWERTRIGGER_MEAN_ADDR, int(lowestValuesToTrigger.getAverage()));
+                lpp.addLuminosity(LPP_HIGHERTRIGGER_MEAN_ADDR, int(highestValuesToTrigger.getAverage()));
+                lpp.addLuminosity((LPP_LOWERTRIGGER_ADDR), triggerLevelLow.value);
+                lpp.addLuminosity(LPP_HIGHERTRIGGER_ADDR, triggerLevelHigh.value);
+                lpp.addLuminosity(LPP_EXCEEDALARM_ADDR, data_period_exceed_alarm.value);
+            }
 
             dprintln("Send data to gateway");
             if (do_send(&sendjob)) 
