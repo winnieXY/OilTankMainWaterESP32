@@ -94,16 +94,16 @@ unsigned int data_count_sum = 0;
 #define DATA_ARRAY_SIZE 5 // Default value - Usually transmit after 5 measurement - only transmit faster if on a good datarate
                           // EEPROM Address "1" -> Data is stored as is
 
-#define LPP_TEMP_ADDR DATA_ARRAY_SIZE + 1 //LPP Address for the Temperature Sensor on the Ultrasonic Distance Unit (US-100)
-#define LPP_OIL_LVL_ADDR DATA_ARRAY_SIZE + 2 //LPP Address for the Oillevel in mm
-#define LPP_OIL_LTR_ADDR DATA_ARRAY_SIZE + 3 //LPP Address for the Oilamount in liter
-#define LPP_LOWERTRIGGER_ADDR DATA_ARRAY_SIZE + 4 //LPP Address for the Lower Trigger Level for the IR Water Counter
-#define LPP_HIGHERTRIGGER_ADDR DATA_ARRAY_SIZE + 5 //LPP Address for the Higher Trigger Level of the IR Water Counter
-#define LPP_AUTOTRIGGER_ADDR DATA_ARRAY_SIZE + 6 //LPP Address for the Autotrigger flag 
-#define LPP_EXCEEDALARM_ADDR DATA_ARRAY_SIZE + 7 //LPP Address for the Exceed Alarm Amount after which the water amount is reported directly
-#define LPP_ERR_ADDR DATA_ARRAY_SIZE + 8 //LPP Address for the Error Register
-#define LPP_LOWERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 9
-#define LPP_HIGHERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 10
+#define LPP_TEMP_ADDR DATA_ARRAY_SIZE + 2 //LPP Address for the Temperature Sensor on the Ultrasonic Distance Unit (US-100)
+#define LPP_OIL_LVL_ADDR DATA_ARRAY_SIZE + 3 //LPP Address for the Oillevel in mm
+#define LPP_OIL_LTR_ADDR DATA_ARRAY_SIZE + 4 //LPP Address for the Oilamount in liter
+#define LPP_LOWERTRIGGER_ADDR DATA_ARRAY_SIZE + 5 //LPP Address for the Lower Trigger Level for the IR Water Counter
+#define LPP_HIGHERTRIGGER_ADDR DATA_ARRAY_SIZE + 6 //LPP Address for the Higher Trigger Level of the IR Water Counter
+#define LPP_AUTOTRIGGER_ADDR DATA_ARRAY_SIZE + 7 //LPP Address for the Autotrigger flag 
+#define LPP_EXCEEDALARM_ADDR DATA_ARRAY_SIZE + 8 //LPP Address for the Exceed Alarm Amount after which the water amount is reported directly
+#define LPP_ERR_ADDR DATA_ARRAY_SIZE + 9 //LPP Address for the Error Register
+#define LPP_LOWERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 10
+#define LPP_HIGHERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 11
 
 //Modified data_array_size depending on the spreading factor. Good spreading factors -> =1, bad ones =5, in between =2
 unsigned int data_array_size = 0;
@@ -872,8 +872,8 @@ void loop()
         {
             messung();
             lpp.addTemperature(LPP_TEMP_ADDR,temp);
-            lpp.addAnalogInput(LPP_OIL_LVL_ADDR, level);
-            lpp.addAnalogInput(LPP_OIL_LTR_ADDR, (level * LITER_PER_MM));
+            lpp.addBarometricPressure(LPP_OIL_LVL_ADDR, float(level));
+            lpp.addBarometricPressure(LPP_OIL_LTR_ADDR, float((level * LITER_PER_MM)));
 
             oil_last_transmit_time = millis();
         }
@@ -891,8 +891,8 @@ void loop()
             {
                 lpp.addLuminosity(LPP_ERR_ADDR, err_code);
             }
-            lpp.addLuminosity(LPP_LOWERTRIGGER_MEAN_ADDR, (int)lowestValuesToTrigger.getAverage());
-            lpp.addLuminosity(LPP_HIGHERTRIGGER_MEAN_ADDR, (int)highestValuesToTrigger.getAverage());
+            lpp.addLuminosity(LPP_LOWERTRIGGER_MEAN_ADDR, int(lowestValuesToTrigger.getAverage()));
+            lpp.addLuminosity(LPP_HIGHERTRIGGER_MEAN_ADDR, int(highestValuesToTrigger.getAverage()));
 
             dprintln("Send data to gateway");
             if (do_send(&sendjob)) 
