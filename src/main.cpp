@@ -852,8 +852,6 @@ void loop()
 
     if (data_fetch_time == 0 || now - data_fetch_time >= DATA_SUMMATION_PERIOD)
     {
-        dprintln("Get Data!");
-
         // Get data
         // Use the watercount instead of the interrupt
         int datatmp = watercount;
@@ -867,9 +865,10 @@ void loop()
 
         lpp.addAnalogOutput(0, DATA_SUMMATION_PERIOD/1000); //0 is the delay between every measurement in seconds
         lpp.addAnalogOutput(array_counter, datatmp);
-
+        dprintln("Added value [" +  String(datatmp) + "] on position [" + String(array_counter) + "] at [" + String(now) +"].");
+       
         // Transmit the oil values just every hour - we do not need these values more often
-        if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
+        if (flag_TXCOMPLETE && (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME))
         {
             messung();
             lpp.addTemperature(LPP_TEMP_ADDR,temp);
@@ -886,17 +885,20 @@ void loop()
         // Especially the first check prevents transfers of data without any need as zero measurements will be delayed until the array size is filled up till maximum
         // So if there is no flow at all the data will be transferred only every 5 minutes. With DR5 (SF7) we are allowed to transmit ~18 messages per hour on average
         //(every three minutes) to fullfill the TTN fair usage policy. This change will allow us to do so if there is not that much flow most of the day.
-        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter > DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
+        if ((array_counter >= data_array_size && data_count_sum != 0) || array_counter >= DATA_ARRAY_SIZE || datatmp > data_period_exceed_alarm.value)
         {
             if (err_code != 0) 
             {
                 lpp.addLuminosity(LPP_ERR_ADDR, err_code);
             }
+            lpp.addLuminosity(LPP_LOWERTRIGGER_MEAN_ADDR, (int)lowestValuesToTrigger.getAverage());
+            lpp.addLuminosity(LPP_HIGHERTRIGGER_MEAN_ADDR, (int)highestValuesToTrigger.getAverage());
 
             dprintln("Send data to gateway");
             if (do_send(&sendjob)) 
             {
                 // Reset Counter
+                dprintln("Resetting array_counter to 0");
                 array_counter = 0;
                 // Reset Data Count Summation
                 data_count_sum = 0;
@@ -906,6 +908,7 @@ void loop()
         }    
         // Increase counter
         array_counter++;
+        dprintln("Increased array counter to [" + String(array_counter) + "]");
 
         // Set time where the next data storage should occur
         data_fetch_time = millis();
