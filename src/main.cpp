@@ -130,9 +130,7 @@ HardwareSerial US100Serial(2);
 #define LITER_PER_MM 3.68
 
 #define OIL_DELTA_TRANSMIT_TIME 3600 * 1000 // time in milliseconds between two transmits
-#define OIL_DELTA_MEASURE_TIME 600 * 1000  * 6  // time in milliseconds between two measurements - every hour 
 unsigned long oil_last_transmit_time = 0;
-unsigned long oil_last_measure_time = 0;
 
 // US-100 ultrasonic rangefinder:
 unsigned int HByte = 0, LByte = 0;
@@ -843,12 +841,6 @@ void setup()
 void loop() 
 {
     unsigned long now = millis();
-    // Do nothing which could ruin the lora transmission - Just wait till the flag is set to true again.
-    if (flag_TXCOMPLETE && (oil_last_measure_time == 0 || now - oil_last_measure_time >= OIL_DELTA_MEASURE_TIME))
-    {
-        messung();
-        oil_last_measure_time = millis();
-    }
     /**************************************************************************
      * Measure the magnetic field if no transmission is pending to not ruin the transmission
      *************************************************************************/
@@ -878,6 +870,7 @@ void loop()
         // Transmit the oil values just every hour - we do not need these values more often
         if (oil_last_transmit_time == 0 || now - oil_last_transmit_time >= OIL_DELTA_TRANSMIT_TIME)
         {
+            messung();
             lpp.addTemperature(LPP_TEMP_ADDR,temp);
             lpp.addAnalogInput(LPP_OIL_LVL_ADDR, level);
             lpp.addAnalogInput(LPP_OIL_LTR_ADDR, (level * LITER_PER_MM));
