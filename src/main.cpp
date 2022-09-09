@@ -596,7 +596,6 @@ float lowpass(int value)
 // otherwise the return value is "-1"
 int detectTrigger(float val)
 {
-    int tmp = -1;
     boolean nextState = triggerState;
     if (val > triggerLevelHigh.value)
     {
@@ -609,9 +608,12 @@ int detectTrigger(float val)
     if (nextState != triggerState)
     {
         triggerState = nextState;
-        tmp = triggerState;
+        if (triggerState) 
+            return 1;
+        else
+            return 0;
     }
-    return tmp;
+    return 0;
 }
 
 //Detect local maxima and local minima in a floating manner and use averaging to update the triggers
