@@ -102,6 +102,8 @@ unsigned int data_count_sum = 0;
 #define LPP_AUTOTRIGGER_ADDR DATA_ARRAY_SIZE + 6 //LPP Address for the Autotrigger flag 
 #define LPP_EXCEEDALARM_ADDR DATA_ARRAY_SIZE + 7 //LPP Address for the Exceed Alarm Amount after which the water amount is reported directly
 #define LPP_ERR_ADDR DATA_ARRAY_SIZE + 8 //LPP Address for the Error Register
+#define LPP_LOWERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 9
+#define LPP_HIGHERTRIGGER_MEAN_ADDR  DATA_ARRAY_SIZE + 10
 
 //Modified data_array_size depending on the spreading factor. Good spreading factors -> =1, bad ones =5, in between =2
 unsigned int data_array_size = 0;
@@ -200,6 +202,7 @@ bool foundHigh = false;
 #define ERR_IR_SENSOR    (1<<1)
 #define ERR_EARLY_RETRANSMISSION (1<<2)
 #define ERR_INVALID_DOWNLINK (1<<3)
+#define ERR_INVALID_TIME (1<<4)
 u8_t err_code  = 0;
 
 
@@ -222,6 +225,7 @@ void user_request_network_time_callback(void *pVoidUserUTCTime, int flagSuccess)
     if (flagSuccess != 1)
     {
         dprintln(F("USER CALLBACK: Not a success"));
+        err_code = err_code | ERR_INVALID_TIME;
         return;
     }
 
@@ -230,6 +234,7 @@ void user_request_network_time_callback(void *pVoidUserUTCTime, int flagSuccess)
     if (flagSuccess != 1)
     {
         dprintln(F("USER CALLBACK: LMIC_getNetworkTimeReference didn't succeed"));
+        err_code = err_code | ERR_INVALID_TIME;
         return;
     }
 
